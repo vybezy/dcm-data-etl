@@ -3,5 +3,6 @@ __pycache__/
 *.log
 *.txt
 *.c3d
+!requirements.txt
 THKE_secret*.key
 THKE_config*.ini
