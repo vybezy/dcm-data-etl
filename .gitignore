@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.log
+*.txt
+*.c3d
+THKE_secret*.key
+THKE_config*.ini

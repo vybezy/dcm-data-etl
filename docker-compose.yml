@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:15
+    container_name: c3d_postgres
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck: # runs python script once db is ready
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  etl_pipeline:
+    build: .
+    container_name: c3d_pipeline
+    env_file:
+      - .env
+    environment: # overrides localhost to db
+      DB_HOST: db
+    volumes: # puts folder containing c3d files in container
+      - ./data:/data
+    depends_on: # makes sure db is fully booted up before connecting
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

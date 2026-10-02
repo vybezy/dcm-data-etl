@@ -1,8 +1,8 @@
 ## Python ETL Pipeline & PostgreSQL Backend
-    This is a backend data engineering project I built to process, clean, and load large datasets into a PostgreSQL database quickly and safely.
+    This is a backend data engineering project built to process, clean, and load large biomechanical datasets (C3D files) into a PostgreSQL database efficiently
 
 # What it does
-    ETL Pipeline: Handles extracting messy files, cleaning the data, and inserting it into the database.
+    ETL Pipeline: Handles extracting messy C3D files, cleaning the data, and inserting it into the database.
 
     Database Design: Uses PostgreSQL schemas, including JSONB fields and GIN / B-Tree indexes so queries run efficiently.
 

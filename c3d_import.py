@@ -1,42 +1,9 @@
 """
-C3D Import Module (Refactored for GUI Integration) - DR
+C3D Pipeline: Core Import Module
 
-Υλοποιημένα:
-- Όλες οι σταθερές (constants) διαβάζονται από τον πίνακα c3d_settings_dr.
-- Χρησιμοποιείται SHA256 για hashing.
-- Logging σε database table (c3d_logging_dr) και σε αρχείο (μόνο critical errors).
-- Υποστήριξη import session (c3d_logger_session_dr).
-- Detailed error context (module, function, γραμμή, process, thread).
-- File traversal: extension, filename length, invalid chars, safe path.
-- Έλεγχος μεγέθους αρχείου (>=300KB και <=99MB).
-- Multiprocessing workers (4-8) ή σειριακή λειτουργία.
-- Κάθε import_c3d τρέχει ως αυτόνομο process με δικό του DB connection.
-- Πλήρης έλεγχος για invalid/unusual χαρακτήρες στο filename.
-- Πλήρης αντικατάσταση path με safe path.
-- Πλήρης αναφορά επιτυχίας/αποτυχίας ανά αρχείο (με αναλυτικά στατιστικά).
-(19/09/2025)
-- init_db_tables : μεσα στη main δεχεται boolean value για να δει αν θα κανει drop & create τα settings & logging tables
-- handle_exception : centralized error handling
-(10/10/2025)
-- Αντικατασταση DB Config με connect function για συνδεση στη βαση δεδομενων , με χρηση .env για την ασφαλη αποθηκευση password και config.py 
-- Drops Tables και ξαναδημιουργει για να τρεξει σωστα το προγραμμα
-- η load settings from db αποθηκευει τα settings σε dictionary
-- Table creation στο main() με boolean parameter
-(13/10/2025)
-- init_db_tables εγινε διαφορετικο module db_init
-- run_c3d_import - η main() σε module
-- wildcards/single file/folder
-
-Υπολείπονται/Μερικώς υλοποιημένα:
--
-
-Add New Implementations/Νέες Υλοποιήσεις:
-(1/4/2026)
-- Line Profiler
-- Sql comments on all tables
-- ProcessPoolExecutor
-- Replaced executemany -> executevalue, less try except more exception handler
-- Points & Analog Import
+Handles the extraction, validation, and parallel processing of biomechanical C3D files.
+Features include cryptographic hashing for duplicate prevention, comprehensive error 
+logging, and high-speed bulk ingestion of 3D point trajectories and analog time-series data.
 
 """
 
@@ -60,8 +27,8 @@ import psycopg2.extras
 import psycopg2.errors
 import multiprocessing
 from functools import wraps
-from THKE_config import config
-from db_init_MM import db_init
+from config import config
+from db_init import db_init
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
@@ -72,12 +39,12 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 # ------------------------- Logging setup -------------------------
 
 
-# ruthmizei to logging kommati tou programmatos
+# sets up logger
 
 logger = logging.getLogger("c3d_importer")
 logger.setLevel(logging.DEBUG)
 
-file_handler = logging.FileHandler("c3d_importer_critical_MM.log")
+file_handler = logging.FileHandler("c3d_importer_critical.log")
 file_handler.setLevel(logging.CRITICAL)
 file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 file_handler.setFormatter(file_formatter)
@@ -146,7 +113,7 @@ def Profiler(func):
         lp.print_stats(stream=s)
         
         # save to log file
-        log_file = "profiler_logs_MM.txt"
+        log_file = "profiler_logs.txt"
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         with open(log_file, "a", encoding="utf-8") as f:
@@ -235,7 +202,7 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
 # ------------------------- DB Helpers -------------------------
 
 
-# Apothikeuei sto c3d_logger_session_MM table ta stoixeia tou user pou sundethike sto db
+# saves user data in c3d_logger_session
 def create_import_session() -> int:
     params = config()
     conn = psycopg2.connect(**params)
@@ -247,7 +214,7 @@ def create_import_session() -> int:
     machineid = f"{hostname} ({ip})"
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO c3d_logger_session_MM (logses_machineid)
+            INSERT INTO c3d_logger_session (logses_machineid)
             VALUES (%s) RETURNING logses_id;
         """, (machineid,))
         session_id = cur.fetchone()[0]
@@ -267,7 +234,7 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
     stack = traceback.format_exc() if exc else None
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO c3d_logger_MM (
+            INSERT INTO c3d_logger (
                 log_logses_id, log_timestamp, log_level, log_c3dfile,
                 log_message, log_module, log_function, log_line_number,
                 log_process_name, log_thread_name, log_exception_type, log_stack_trace
@@ -278,13 +245,13 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
         ))
         conn.commit()
 
-# katevazei ta settings apo to db
+# loads settings from db
 def load_settings_from_db() -> Dict[str, Any]:
     params = config()
     conn = psycopg2.connect(**params)
     cur = conn.cursor()
     conn.commit()
-    cur.execute("SELECT key, value FROM c3d_settings_MM;")
+    cur.execute("SELECT key, value FROM c3d_settings;")
     rows = cur.fetchall()
     settings = {k: v for k, v in rows}
     cur.close()
@@ -294,12 +261,12 @@ def load_settings_from_db() -> Dict[str, Any]:
 # ------------------------- File Processing -------------------------
 
 
-# checkarei an to file name einai valid
+# checks if file name is valid
 def is_valid_filename(filename: str) -> bool:
-    # Max length 255, only allow alphanum, dash, underscore, dot, space
+    # max length 255, only allow alphanum, dash, underscore, dot, space
     if len(filename) > 255:
         return False
-    # Disallow unusual characters (allow Greek, Latin, numbers, dash, underscore, dot, space)
+    # doesn't allow unusual characters (allows: Greek, Latin, numbers, dash, underscore, dot, space)
     return re.match(r"^[\w\-. \u0370-\u03FF]+$", filename) is not None
 
 def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
@@ -332,8 +299,7 @@ def compute_sha256(path: str) -> str:
         data = f.read()
     return hashlib.sha256(data).hexdigest()
 
-# kuria epeksergasia tou arxeiou
-
+# main file processing
 @Profiler
 def process_file(path: str, options_dict: dict):
     options = ImportOptions(**options_dict)
@@ -344,7 +310,7 @@ def process_file(path: str, options_dict: dict):
         if not conn:
             result.update(status="error", message="Database connection failed")
             return result
-        # Path traversal and filename checks
+        # path traversal and filename checks
         try:
             abs_path = sanitize_and_validate_path(path, options.base_folder)
         except Exception as e:
@@ -391,7 +357,7 @@ def process_file(path: str, options_dict: dict):
             result.update(status="invalid", message=reason)
             return result
 
-        # Subject name extraction (robust, with fallback to filename)
+        # subject name extraction (robust, with fallback to filename)
         try:
             c3d = ezc3d.c3d(abs_path)
         except Exception as e:
@@ -439,9 +405,9 @@ def process_file(path: str, options_dict: dict):
 
         sha = compute_sha256(abs_path)
 
-         # Duplicate check (SHA256)
+         # duplicate check (SHA256)
         with conn.cursor() as cur:
-            cur.execute("SELECT file_id FROM c3d_files_MM WHERE file_sha256_hash = %s", (sha,))
+            cur.execute("SELECT file_id FROM c3d_files WHERE file_sha256_hash = %s", (sha,))
             row = cur.fetchone()
             if row:
                 reason = f"Duplicate file (SHA256={sha})"
@@ -450,7 +416,7 @@ def process_file(path: str, options_dict: dict):
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
 
-        # Insert file metadata (if not dry run)
+        # insert file metadata (if not dry run)
         if options.dry_run:
             pretty_log("DRYRUN", f"Dry run - not inserted", file=filename)
             log_db_event(conn, options, path, "DRYRUN", "Dry run - not inserted")
@@ -460,7 +426,7 @@ def process_file(path: str, options_dict: dict):
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO c3d_files_MM (file_name, file_path, file_date, file_size, file_sha256_hash, file_subject_name)
+                    INSERT INTO c3d_files (file_name, file_path, file_date, file_size, file_sha256_hash, file_subject_name)
                     VALUES (%s, %s, %s, %s, %s, %s) RETURNING file_id;
                 """, (
                     filename, abs_path, file_date, st.st_size, sha, subject_name
@@ -474,6 +440,7 @@ def process_file(path: str, options_dict: dict):
                 log_db_event(conn, options, path, "SUCCESS", f"Imported file (ID={file_id})")
                 result.update(status="inserted", message="Successfully imported", db_file_id=file_id)
                 return result
+            
         except psycopg2.errors.UniqueViolation:
             conn.rollback()
             reason = f"Duplicate detected during insert (SHA256={sha})"
@@ -481,6 +448,7 @@ def process_file(path: str, options_dict: dict):
             log_db_event(conn, options, path, "DUPLICATE", reason)
             result.update(status="duplicate", message="Duplicate detected during insert")
             return result
+        
         except Exception as e:
             conn.rollback()
             reason = f"Insert error: {e}"
@@ -497,6 +465,7 @@ def process_file(path: str, options_dict: dict):
             log_db_event(conn, options, path, "CRITICAL", reason, exc=e)
         result.update(status="error", message=reason)
         return result
+    
     finally:
         if conn:
             conn.close()
@@ -508,7 +477,6 @@ def process_file(path: str, options_dict: dict):
 def extract_and_insert_headers(conn, file_id: int, c3d_data: ezc3d.c3d):
     """
     Extracts the basic header section of the C3D file.
-    Upgraded to use execute_values for high-speed bulk inserts.
     """
     headers_to_insert = []
     
@@ -523,13 +491,11 @@ def extract_and_insert_headers(conn, file_id: int, c3d_data: ezc3d.c3d):
             headers_to_insert.append((file_id, header_name, section_key, str(value)))
 
     if headers_to_insert:
-        # No try/except block here! If it fails, it bubbles up to the parent function 
-        # (process_c3d_metadata) which handles the logging and rollback centrally.
         with conn.cursor() as cur:
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO c3d_header_MM (header_file_id, header_name, header_key, header_value)
+                INSERT INTO c3d_header (header_file_id, header_name, header_key, header_value)
                 VALUES %s
                 ON CONFLICT (header_file_id, header_name) DO NOTHING;
                 """,
@@ -543,7 +509,6 @@ def extract_and_insert_headers(conn, file_id: int, c3d_data: ezc3d.c3d):
 def extract_and_insert_parameters(conn, file_id: int, c3d_data: ezc3d.c3d):
     """
     Extracts the deep metadata parameters using strict anti-corruption checks.
-    Upgraded to use execute_values for high-speed bulk inserts.
     """
     params_to_insert = []
     parameters_section = c3d_data.get('parameters', {})
@@ -595,7 +560,7 @@ def extract_and_insert_parameters(conn, file_id: int, c3d_data: ezc3d.c3d):
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO c3d_parameters_MM (
+                INSERT INTO c3d_parameters (
                     parameters_file_id,parameters_group, 
                     parameters_key, 
                     parameters_description, parameters_dimensions, parameters_lock, parameters_value_json
@@ -617,31 +582,29 @@ def extract_and_insert_analog(conn, file_id: int, c3d_data: ezc3d.c3d):
     """
     analog_to_insert = []
     
-    # Safely get the data and parameters
+    # get the data and parameters
     analog_data = c3d_data.get('data', {}).get('analogs')
     analog_params = c3d_data.get('parameters', {}).get('ANALOG', {})
     
-    # If there is no analog data (or it's empty), just skip
+    # if there is no analog data (or empty), skip
     if analog_data is None or analog_data.size == 0 or len(analog_data.shape) != 3:
         return
 
-    # ezc3d analog shape is typically (1, num_channels, num_frames)
     num_channels = analog_data.shape[1]
     
-    # Extract the metadata lists (with safe fallbacks)
+    # extract the metadata lists
     labels = analog_params.get('LABELS', {}).get('value', [])
     units = analog_params.get('UNITS', {}).get('value', [])
-    gains = analog_params.get('GEN_SCALE', {}).get('value', []) # Sometimes named SCALE
+    gains = analog_params.get('GEN_SCALE', {}).get('value', [])
     offsets = analog_params.get('OFFSET', {}).get('value', [])
     descs = analog_params.get('DESCRIPTIONS', {}).get('value', [])
 
     for i in range(num_channels):
-        # Safely extract matching metadata by index, with fallbacks if the C3D is poorly formatted
+        # extract matching metadata by index, with fallbacks if C3D is poorly formatted
         label = labels[i] if i < len(labels) and labels[i] else f"Analog_{i}"
         unit = str(units[i]) if i < len(units) and units[i] else ""
         gain = str(gains[i]) if i < len(gains) and gains[i] else ""
         
-        # Offsets are usually integers
         offset = None
         if i < len(offsets) and offsets[i] is not None:
             try:
@@ -651,7 +614,7 @@ def extract_and_insert_analog(conn, file_id: int, c3d_data: ezc3d.c3d):
                 
         desc = str(descs[i]) if i < len(descs) and descs[i] else ""
         
-        # Extract the entire time-series array for this channel and convert to a Postgres-friendly list
+        # extract the entire time-series array for this channel and convert to a list
         frames = analog_data[0, i, :].tolist()
 
         analog_to_insert.append((
@@ -663,7 +626,7 @@ def extract_and_insert_analog(conn, file_id: int, c3d_data: ezc3d.c3d):
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO c3d_analog_MM (
+                INSERT INTO c3d_analog (
                     analog_file_id, analog_label, analog_unit, 
                     analog_gain, analog_frames, analog_offset, analog_desc
                 )
@@ -672,7 +635,7 @@ def extract_and_insert_analog(conn, file_id: int, c3d_data: ezc3d.c3d):
                 """,
                 analog_to_insert,
                 template="(%s, %s, %s, %s, %s, %s, %s)",
-                page_size=500 # Slightly smaller page size since these arrays are huge!
+                page_size=500
             )
             conn.commit()
 
@@ -687,12 +650,10 @@ def extract_and_insert_points(conn, file_id: int, c3d_data: ezc3d.c3d):
     point_data = c3d_data.get('data', {}).get('points')
     point_params = c3d_data.get('parameters', {}).get('POINT', {})
     
-    # If there is no point data, skip
+    # if there is no point data, skip
     if point_data is None or point_data.size == 0 or len(point_data.shape) != 3:
         return
 
-    # ezc3d point shape is typically (4, num_points, num_frames)
-    # 0=X, 1=Y, 2=Z, 3=Residuals
     num_points = point_data.shape[1]
     num_frames = point_data.shape[2]
     
@@ -701,7 +662,7 @@ def extract_and_insert_points(conn, file_id: int, c3d_data: ezc3d.c3d):
     for i in range(num_points):
         label = labels[i] if i < len(labels) and labels[i] else f"Point_{i}"
         
-        # Extract the X, Y, Z, and Residual arrays 
+        # extract the X, Y, Z, and residual arrays 
         x_frames = point_data[0, i, :].tolist()
         y_frames = point_data[1, i, :].tolist()
         z_frames = point_data[2, i, :].tolist()
@@ -717,7 +678,7 @@ def extract_and_insert_points(conn, file_id: int, c3d_data: ezc3d.c3d):
             psycopg2.extras.execute_values(
                 cur,
                 """
-                INSERT INTO c3d_points_MM (
+                INSERT INTO c3d_points (
                     points_file_id, points_frame_count, points_label, 
                     points_frames_x, points_frames_y, points_frames_z, points_frames_r
                 )
@@ -730,11 +691,9 @@ def extract_and_insert_points(conn, file_id: int, c3d_data: ezc3d.c3d):
             )
             conn.commit()
 
-# main thing
-
 def process_c3d_metadata(file_id: int, file_path: str):
     """
-    Main entry point. Extracts ONLY headers and parameters sequentially.
+    Main entry point. Extracts only headers and parameters sequentially.
     """
     try:     
         c3d_data = ezc3d.c3d(file_path)
@@ -743,11 +702,10 @@ def process_c3d_metadata(file_id: int, file_path: str):
         with psycopg2.connect(**params) as conn:
             extract_and_insert_headers(conn, file_id, c3d_data)
             
-            # hand the file_name to the parameter function
             extract_and_insert_parameters(conn, file_id, c3d_data)
 
-            # 3. Massive Scientific Arrays
             extract_and_insert_analog(conn, file_id, c3d_data)
+
             extract_and_insert_points(conn, file_id, c3d_data)
             
         logger.info(f"Successfully processed headers and parameters for file_id: {file_id}")
@@ -758,7 +716,7 @@ def process_c3d_metadata(file_id: int, file_path: str):
         return False
     
 # ------------------------- MAIN -------------------------
-# diaxeirizetai thn import diadikasia twn arxeiwn
+# file import process
 
 def scan_and_import(folder: str, options: ImportOptions):
     file_list = [os.path.join(root, f)
@@ -766,7 +724,7 @@ def scan_and_import(folder: str, options: ImportOptions):
                  for f in files if f.lower().endswith(".c3d")]
     logger.info("Found %d C3D files", len(file_list))
 
-    options_dict = asdict(options)  # Convert dataclass to dict for pickling
+    options_dict = asdict(options)  # convert dataclass to dict
 
     results = []
 
