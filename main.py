@@ -1,8 +1,10 @@
 import os
 import glob
-import psycopg2
-from c3d_import import *
 from db_init import db_init
+from utils import *
+from database import create_import_session, load_settings_from_db
+from processor import scan_and_import
+from logger import *
 
 RESET_TABLES = True
 
@@ -16,9 +18,11 @@ goes through scan_and_import().
 
 if __name__ == "__main__":
 
-    # check if running inside Docker
-    if os.path.exists('/data'):
-        target_path = '/data'
+    if os.path.exists("/data"):
+        target_path = "/data"
+        download_c3d_from_azure(target_path)
+    else:
+        target_path = "./data"
 
     db_init(reset_tables=RESET_TABLES, logger=logger)
     session_id = create_import_session()

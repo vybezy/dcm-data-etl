@@ -1,0 +1,167 @@
+import io
+import sys
+import os
+import inspect
+import psycopg2
+import threading
+import multiprocessing
+import traceback
+from logger import pretty_log, logger
+from functools import wraps
+from datetime import datetime
+from dataclasses import dataclass
+from typing import Optional
+from config import config
+from logger import pretty_log, logger
+from azure.storage.blob import BlobServiceClient
+
+
+# ------------------------- Profiler -------------------------
+
+
+def Profiler(func):
+    """
+    A custom line-by-line profiler that logs execution time for every single line.
+    Automatically appends the receipt to a text file.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            from line_profiler import LineProfiler
+        except ImportError:
+            print("⚠️ line_profiler is missing! Please run: pip install line_profiler")
+            return func(*args, **kwargs)
+
+        lp = LineProfiler()
+        lp.add_function(func)
+        
+        lp.enable()
+        result = func(*args, **kwargs)
+        lp.disable()
+        
+        # get the info as a text
+        s = io.StringIO()
+        lp.print_stats(stream=s)
+        
+        # save to log file
+        log_file = "profiler_logs.txt"
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"📅 DATE:     {current_time}\n")
+            f.write(f"⚙️ FUNCTION: {func.__name__}\n")
+            f.write(f"{'='*80}\n")
+            f.write(s.getvalue())
+            f.write("\n")
+            
+        return result
+    return wrapper
+
+
+# ------------------------- Error Handling -------------------------
+
+
+@dataclass # creates automatically constructor , saves time in writing the class
+class ImportOptions:
+    base_folder: str
+    min_size: int
+    max_size: int
+    subject_min_length: int
+    max_file_age_months: int
+    workers: int
+    dry_run: bool = False
+    debug: bool = False
+    log_to_db: bool = True
+    safe_c3d_folder: Optional[str] = None
+    session_id: Optional[int] = None
+
+class ImportErrorWithContext(Exception):
+    pass
+
+# Exception Handler
+def handle_exception(e: Exception, options: ImportOptions = None, file_path: str = None, level: str = "CRITICAL"):
+    try:
+        # traceback in string
+        tb_str = traceback.format_exc()
+
+        # exception type
+        exc_type = type(e).__name__
+
+        # Tries to get last frame from traceback where exception occured
+        tb = sys.exc_info()[2]
+        if tb:
+            last_frame = traceback.extract_tb(tb)[-1]
+            filename = last_frame.filename
+            lineno = last_frame.lineno
+            funcname = last_frame.name
+        else:
+            # fallback to caller frame if theres no traceback
+            caller = inspect.currentframe().f_back
+            filename = caller.f_code.co_filename
+            lineno = caller.f_lineno
+            funcname = caller.f_code.co_name
+
+        process_name = multiprocessing.current_process().name
+        thread_name = threading.current_thread().name
+
+        # Message to where its stored
+        message = f"{exc_type} in {funcname} at {filename}:{lineno} -> {e}\n{tb_str}"
+
+        # Console + file logger με stacktrace
+        pretty_log(level, f"{exc_type}: {e}", file=file_path, extra=f"{filename}:{lineno}")
+        logger.exception(message)  # writes full traceback to αρχείο/console handlers
+
+        # Database logging (if there's session_id)
+        session_id = getattr(options, "session_id", None) if options is not None else None
+        if session_id:
+            try:
+                from database import log_db_event  # Local import prevents circular dependency
+                params = config()
+                connection = psycopg2.connect(**params)
+                if connection:
+                    log_db_event(connection, options, file_path or "", level, message, exc=e)
+            except Exception as db_e:
+                # Doesn't allow handler to break - fallback to local logger
+                logger.error("Failed to log exception to DB: %s", db_e)
+
+    except Exception as handler_err:
+        # if something breaks in handler, write in local logger
+        logger.critical("Exception inside handle_exception(): %s", handler_err)
+        logger.critical("Original exception was: %s", e)
+
+
+# ------------------------------ Azure ------------------------------
+
+
+def download_c3d_from_azure(download_dir: str = "/data") -> str:
+    """
+    Connects to Azure Blob Storage using a SAS connection string and downloads
+    all .c3d files into the local container directory prior to processing.
+    """
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    if not connection_string:
+        print("[INFO] No AZURE_STORAGE_CONNECTION_STRING found; using existing local files.")
+        return download_dir
+
+    print("[INFO] Connecting to Azure Blob Storage...")
+    try:
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        container_client = blob_service_client.get_container_client("raw-c3d-files")
+        
+        os.makedirs(download_dir, exist_ok=True)
+        downloaded = 0
+
+        for blob in container_client.list_blobs():
+            dest_path = os.path.join(download_dir, os.path.basename(blob.name))
+            if not os.path.exists(dest_path):
+                print(f"[INFO] Downloading {blob.name} from Azure Blob Storage...")
+                with open(dest_path, "wb") as f:
+                    f.write(container_client.download_blob(blob.name).readall())
+                downloaded += 1
+
+        print(f"[INFO] Azure download complete: {downloaded} new file(s) retrieved.")
+    except Exception as e:
+        print(f"[WARNING] Azure download failed: {e}. Falling back to existing directory contents.")
+
+    return download_dir
