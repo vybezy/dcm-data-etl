@@ -3,6 +3,16 @@ from config import DEFAULT_SETTINGS
 from database import db_connection
 
 
+# Indexes that older versions created on top of UNIQUE constraints; see _create_schema().
+REDUNDANT_INDEXES = (
+    "idx_patients_mrn",
+    "idx_studies_uid",
+    "idx_series_uid",
+    "idx_instances_sha256",
+    "idx_dicom_headers_file",
+)
+
+
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
     """
     Creates all pipeline tables (and drops them first if reset_tables=True).
@@ -108,17 +118,13 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE INDEX IF NOT EXISTS idx_patients_mrn 
-            ON dicom_patients (medical_record_number);
-
         COMMENT ON TABLE dicom_patients IS 'Root entity of the DICOM hierarchy representing unique individuals.';
         COMMENT ON COLUMN dicom_patients.patient_id IS 'Surrogate primary key for internal foreign key referencing.';
-        COMMENT ON COLUMN dicom_patients.medical_record_number IS 'Clinical patient identifier extracted from DICOM Tag (0010,0020). Guaranteed unique.';
+        COMMENT ON COLUMN dicom_patients.medical_record_number IS 'Clinical patient identifier extracted from DICOM Tag (0010,0020). UNIQUE constraint; its index serves upsert lookups.';
         COMMENT ON COLUMN dicom_patients.patient_name IS 'Extracted from DICOM Tag (0010,0010). Typically masked or anonymized in public research cohorts.';
         COMMENT ON COLUMN dicom_patients.birth_date IS 'Extracted from DICOM Tag (0010,0030). Used for cohort age segmentation.';
         COMMENT ON COLUMN dicom_patients.sex IS 'Extracted from DICOM Tag (0010,0040) (e.g., M, F, O).';
         COMMENT ON COLUMN dicom_patients.created_at IS 'UTC timestamp recording when this patient profile was first ingested.';
-        COMMENT ON INDEX idx_patients_mrn IS 'B-Tree Index: Optimizes lookups and upsert checks by hospital Patient ID during batch ingestion.';
     """)
 
 
@@ -143,13 +149,11 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         CREATE INDEX IF NOT EXISTS idx_studies_patient_id 
             ON dicom_studies(patient_id);
             
-        CREATE INDEX IF NOT EXISTS idx_studies_uid 
-            ON dicom_studies(study_instance_uid);
 
         COMMENT ON TABLE dicom_studies IS 'Clinical study or exam visit containing one or more imaging series.';
         COMMENT ON COLUMN dicom_studies.study_id IS 'Surrogate primary key for internal referencing.';
         COMMENT ON COLUMN dicom_studies.patient_id IS 'Foreign key linking this exam back to the master patient profile.';
-        COMMENT ON COLUMN dicom_studies.study_instance_uid IS 'Globally unique identifier extracted from DICOM Tag (0020,000D).';
+        COMMENT ON COLUMN dicom_studies.study_instance_uid IS 'Globally unique identifier extracted from DICOM Tag (0020,000D). UNIQUE constraint; its index serves upsert lookups.';
         COMMENT ON COLUMN dicom_studies.study_date IS 'Date the examination occurred, extracted from DICOM Tag (0080,0020).';
         COMMENT ON COLUMN dicom_studies.study_time IS 'Time of acquisition, extracted from DICOM Tag (0080,0030).';
         COMMENT ON COLUMN dicom_studies.accession_number IS 'Hospital billing/order identifier extracted from DICOM Tag (0008,0050).';
@@ -157,7 +161,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_studies.referring_physician IS 'Physician ordering the study from DICOM Tag (0008,0090).';
         COMMENT ON COLUMN dicom_studies.created_at IS 'UTC timestamp recording when this study was ingested.';
         COMMENT ON INDEX idx_studies_patient_id IS 'B-Tree Index: Optimizes joins to fetch all medical exams belonging to a single patient.';
-        COMMENT ON INDEX idx_studies_uid IS 'B-Tree Index: Fast lookups during batch ingestion to prevent duplicate study inserts.';
     """)
 
 
@@ -183,16 +186,13 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         CREATE INDEX IF NOT EXISTS idx_series_study_id 
             ON dicom_series(study_id);
             
-        CREATE INDEX IF NOT EXISTS idx_series_uid 
-            ON dicom_series(series_instance_uid);
-            
         CREATE INDEX IF NOT EXISTS idx_series_modality 
             ON dicom_series(modality);
 
         COMMENT ON TABLE dicom_series IS 'Specific imaging run or protocol within a clinical study.';
         COMMENT ON COLUMN dicom_series.series_id IS 'Surrogate primary key for internal referencing.';
         COMMENT ON COLUMN dicom_series.study_id IS 'Foreign key linking this series back to its parent clinical study.';
-        COMMENT ON COLUMN dicom_series.series_instance_uid IS 'Globally unique identifier for the series extracted from DICOM Tag (0020,000E).';
+        COMMENT ON COLUMN dicom_series.series_instance_uid IS 'Globally unique identifier for the series extracted from DICOM Tag (0020,000E). UNIQUE constraint; its index serves upsert lookups.';
         COMMENT ON COLUMN dicom_series.series_number IS 'Sequential number of this run within the study, from Tag (0020,0011).';
         COMMENT ON COLUMN dicom_series.modality IS 'Imaging technology used (e.g., CT, MR, PT) extracted from Tag (0008,0060).';
         COMMENT ON COLUMN dicom_series.body_part_examined IS 'Target anatomy (e.g., CHEST, ABDOMEN) extracted from Tag (0018,0015).';
@@ -201,7 +201,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_series.pixel_spacing IS 'Physical distance between pixel centers [row, col] in mm, extracted from Tag (0028,0030).';
         COMMENT ON COLUMN dicom_series.created_at IS 'UTC timestamp recording when this series was ingested.';
         COMMENT ON INDEX idx_series_study_id IS 'B-Tree Index: Optimizes joins to fetch all scan series belonging to a specific hospital visit.';
-        COMMENT ON INDEX idx_series_uid IS 'B-Tree Index: Fast lookups during batch ingestion to prevent duplicate series inserts.';
         COMMENT ON INDEX idx_series_modality IS 'B-Tree Index: Enables rapid filtering of the database by imaging technology.';
     """)
 
@@ -229,7 +228,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         );
         
         CREATE INDEX IF NOT EXISTS idx_instances_series_id ON dicom_instances(series_id);
-        CREATE INDEX IF NOT EXISTS idx_instances_sha256 ON dicom_instances(file_sha256_hash);
         CREATE INDEX IF NOT EXISTS idx_instances_metadata_gin ON dicom_instances USING GIN (metadata_json);
 
         COMMENT ON TABLE dicom_instances IS 'Master record for the physical DICOM files (.dcm) on disk.';
@@ -240,7 +238,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_instances.file_name IS 'Original file name of the DICOM file.';
         COMMENT ON COLUMN dicom_instances.file_path IS 'Absolute filesystem path to the source file.';
         COMMENT ON COLUMN dicom_instances.file_size_bytes IS 'File size in bytes.';
-        COMMENT ON COLUMN dicom_instances.file_sha256_hash IS 'Cryptographic hash to prevent duplicate file ingestion.';
+        COMMENT ON COLUMN dicom_instances.file_sha256_hash IS 'SHA-256 of the file contents. UNIQUE constraint; its index powers duplicate detection.';
         COMMENT ON COLUMN dicom_instances.image_position_patient IS '3D physical coordinates [x, y, z] of the slice relative to the patient coordinate system.';
         COMMENT ON COLUMN dicom_instances.rows IS 'Matrix row count (e.g., 512) from Tag (0028,0010).';
         COMMENT ON COLUMN dicom_instances.columns IS 'Matrix column count (e.g., 512) from Tag (0028,0011).';
@@ -248,7 +246,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_instances.created_at IS 'Timestamp of when the file was ingested into the database.';
         
         COMMENT ON INDEX idx_instances_series_id IS 'B-Tree Index: Optimizes foreign key joins to group all slices for a specific scan.';
-        COMMENT ON INDEX idx_instances_sha256 IS 'B-Tree Index: Crucial for instant cryptographic deduplication during file parsing.';
         COMMENT ON INDEX idx_instances_metadata_gin IS 'GIN Index: Enables lightning-fast searches deep inside the unstructured DICOM metadata payload.';
     """)
 
@@ -269,9 +266,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
                 REFERENCES dicom_instances(file_id) ON DELETE CASCADE
         );
                 
-        CREATE INDEX IF NOT EXISTS idx_dicom_headers_file 
-            ON dicom_header(header_file_id);
-            
         CREATE INDEX IF NOT EXISTS idx_dicom_headers_tag 
             ON dicom_header(header_tag);
 
@@ -283,10 +277,16 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_header.header_vr IS 'DICOM Value Representation code defining data type (e.g., CS=Code String, DS=Decimal String, UI=UID).';
         COMMENT ON COLUMN dicom_header.header_value IS 'The stringified value extracted from the DICOM element.';
         
-        COMMENT ON INDEX idx_dicom_headers_file IS 'B-Tree Index: Optimizes foreign key joins to extract all tags for a single scan slice.';
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)
     
+
+    # Remove indexes created by earlier versions of this schema. Each one
+    # duplicated an index PostgreSQL already builds for a UNIQUE constraint
+    # (the composite UNIQUE(header_file_id, header_tag) also covers lookups on
+    # header_file_id alone). Harmless no-op on a fresh database.
+    for redundant_index in REDUNDANT_INDEXES:
+        cur.execute(f"DROP INDEX IF EXISTS {redundant_index};")
 
     # Default settings: inserted on every run, but ON CONFLICT keeps any value
     # an operator has already changed, so tuned settings survive restarts.
