@@ -1,15 +1,14 @@
-# Data Parsing
-pydicom>=2.4.0
+# Runtime dependencies: what the pipeline needs to run (installed in the Docker image).
+# Versions are pinned so every install is identical to the tested one.
 
-# Database Connection
-psycopg2
+# Data parsing
+pydicom==3.0.2
 
-# Security & Configuration
-python-dotenv
+# Database connection (compiled against libpq; see the Dockerfile build stage)
+psycopg2==2.9.13
 
-# Cloud Ingestion
-azure-storage-blob
+# Configuration from .env
+python-dotenv==1.2.4
 
-# Profiling & Testing
-line-profiler
-pytest
+# Optional cloud ingestion
+azure-storage-blob==12.31.0
