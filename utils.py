@@ -2,7 +2,6 @@ import io
 import sys
 import os
 import inspect
-import psycopg2
 import threading
 import multiprocessing
 import traceback
@@ -11,7 +10,6 @@ from functools import wraps
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
-from config import config
 from logger import pretty_log, logger
 from azure.storage.blob import BlobServiceClient
 
@@ -132,10 +130,8 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
         session_id = getattr(options, "session_id", None) if options is not None else None
         if session_id:
             try:
-                from database import log_db_event  # Local import prevents circular dependency
-                params = config()
-                connection = psycopg2.connect(**params)
-                if connection:
+                from database import db_connection, log_db_event  # local import prevents circular dependency
+                with db_connection() as connection:
                     log_db_event(connection, options, file_path or "", level, message, exc=e)
             except Exception as db_e:
                 # Doesn't allow handler to break - fallback to local logger

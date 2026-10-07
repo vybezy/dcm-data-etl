@@ -4,6 +4,7 @@ import multiprocessing
 import threading
 import traceback
 import inspect
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from config import config
 from utils import ImportOptions
@@ -13,24 +14,42 @@ from typing import Dict, Any
 # ------------------------- DB Helpers -------------------------
 
 
+@contextmanager
+def db_connection():
+    """
+    Opens a PostgreSQL connection for one unit of work.
+    Commits if the block succeeds, rolls back if it raises, and always closes
+    the connection, so no code path can leak one.
+
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(...)
+    """
+    conn = psycopg2.connect(**config())
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # saves user data in dicom_logger_session
 def create_import_session() -> int:
-    params = config()
-    conn = psycopg2.connect(**params)
     hostname = socket.gethostname()
     try:
         ip = socket.gethostbyname(hostname)
-    except:
+    except OSError:  # hostname can't be resolved (e.g. offline machine)
         ip = "unknown"
     machineid = f"{hostname} ({ip})"
-    with conn.cursor() as cur:
+    with db_connection() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO dicom_logger_session (logses_machineid)
             VALUES (%s) RETURNING logses_id;
         """, (machineid,))
-        session_id = cur.fetchone()[0]
-        conn.commit()
-        return session_id
+        return cur.fetchone()[0]
 
 def log_db_event(conn, options: ImportOptions, file_path: str, level: str, message: str, exc: Exception = None):
     if not options.session_id:
@@ -58,12 +77,6 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
 
 # loads settings from db
 def load_settings_from_db() -> Dict[str, Any]:
-    params = config()
-    conn = psycopg2.connect(**params)
-    cur = conn.cursor()
-    conn.commit()
-    cur.execute("SELECT key, value FROM dicom_settings;")
-    rows = cur.fetchall()
-    settings = {k: v for k, v in rows}
-    cur.close()
-    return settings
+    with db_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT key, value FROM dicom_settings;")
+        return {k: v for k, v in cur.fetchall()}
