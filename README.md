@@ -5,7 +5,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 
-A containerized Python ETL pipeline that ingests DICOM medical files, validates them, extracts their complete metadata hierarchy, and loads everything into a normalized PostgreSQL database that follows the DICOM standard (Patient -> Study -> Series), using parallel workers, content-hash deduplication, and structured database logging.
+A containerized Python ETL pipeline that ingests DICOM medical files, validates them, extracts their complete metadata hierarchy, and loads everything into a normalized PostgreSQL database that follows the DICOM hierarchy (Patient → Study → Series → Instance), using parallel workers, content-hash deduplication, and structured database logging.
 
 ---
 
@@ -31,7 +31,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | Area | What it does |
 |---|---|
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. |
-| **Relational modelling** | Patient → Study → Series Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
+| **Relational modelling** | Patient → Study → Series → Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
 | **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
@@ -54,12 +54,14 @@ flowchart TD
     C --> D1["Worker 1"]
     C --> D2["Worker 2"]
     C --> D3["Worker N"]
-    D1 & D2 & D3 --> E["Validate<br/>extension, name, size, age, path"]
+    D1 & D2 & D3 --> E["Validate file<br/>path, extension, name, size"]
     E --> F["SHA-256 hash<br/>duplicate check"]
-    F --> G["extractor.py<br/>parse with pydicom"]
+    F --> R["Read DICOM header<br/>scan-date check"]
+    R --> G["extractor.py<br/>upsert hierarchy, one transaction"]
     G --> H[("PostgreSQL<br/>dicom_* tables")]
     E -. events .-> L[("dicom_logger")]
     F -. events .-> L
+    R -. events .-> L
     G -. events .-> L
 ```
 
@@ -106,12 +108,12 @@ erDiagram
     dicom_instances {
         int file_id PK
         int series_id FK
-        varchar(128) sop_instance_uid
+        varchar(128) sop_instance_uid UK
         int instance_number
         varchar(255) file_name
         text file_path
         bigint file_size_bytes
-        varchar(64) file_sha256_hash
+        varchar(64) file_sha256_hash UK
         float8[] image_position_patient
         int rows
         int columns
@@ -119,15 +121,15 @@ erDiagram
     }
     dicom_header {
         int header_id PK
-        int header_file_id FK
-        text header_tag
+        int header_file_id FK "UK with header_tag"
+        varchar(16) header_tag "UK with header_file_id"
         text header_name
-        text header_vr
+        varchar(4) header_vr
         text header_value
     }
 ```
 
-Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
+`UK` marks columns with a `UNIQUE` constraint; `(header_file_id, header_tag)` is unique as a pair. Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
 
 **Example queries**
 
@@ -170,13 +172,13 @@ Python 3.11 · PostgreSQL 15 · pydicom · psycopg2 · Docker / Docker Compose �
 ### Prerequisites
 
 - Docker and Docker Compose (recommended), **or** Python 3.10+ and a PostgreSQL instance
-- Some `.dcm` files to import (included in the "samples" file)
+- Nothing else: five de-identified sample files are included in [`samples/`](samples/)
 
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/USER/REPO.git
-cd REPO
+git clone https://github.com/vybezy/dcm-data-etl.git
+cd dcm-data-etl
 ```
 
 Copy the template. Its development defaults work as they are, and `.env` is git-ignored:
@@ -189,7 +191,13 @@ To download source files from Azure Blob Storage (container `raw-dicom-files`), 
 
 ### 2. Add data
 
-Place `.dcm` files in `./data`.
+Copy the bundled samples into `./data`, or put your own `.dcm` files there:
+
+```bash
+cp samples/*.dcm data/          # Windows PowerShell: Copy-Item samples\*.dcm data\
+```
+
+The samples are five CT slices from the public LIDC-IDRI collection (CC BY 3.0); see [`samples/README.md`](samples/README.md) for the source and citation.
 
 ### 3. Run with Docker (recommended)
 
@@ -275,15 +283,21 @@ Each step logs to the console and, when a session exists, to `dicom_logger`.
 ## Testing and CI
 
 ```bash
-pip install pytest
 python -m pytest -v
 ```
 
+All suites live in [`tests/`](tests/):
+
 | Suite | What it covers | Needs a database |
 |---|---|---|
-| `test_extractor.py` | Tag cleaning, JSON serialization, header bulk-insert payload, patient and study upserts | No (mocked) |
-| `test_processor.py` | Filename validation, path-traversal and symlink protection, hashing, every validation rejection, duplicate, dry-run, rollback and error paths | No (mocked) |
-| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, multi-process import | Yes |
+| `test_main.py` | Command-line options, folder / file / wildcard input, exit codes, `--reset`, settings fallback | No (mocked) |
+| `test_processor.py` | Filename validation, path-traversal and symlink protection, hashing, every validation rejection, scan-date checks, duplicate, dry-run, rollback and error paths | No (mocked) |
+| `test_extractor.py` | Date/time parsing, tag cleaning, nested sequences, binary values, JSON serialization, header bulk-insert payload, patient and study upserts | No (mocked) |
+| `test_database.py` | Connections are always committed or rolled back and closed; session creation; settings loading; DB event logging | No (mocked) |
+| `test_logger.py` | Plain-text labels, Unicode-safe console output, UTF-8 log file | No |
+| `test_profiler.py` | Profiler is off by default and falls back cleanly without `line_profiler` | No |
+| `test_azure.py` | Azure Blob download: skipped without a connection string, failures logged, existing files kept | No (mocked) |
+| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import | Yes |
 
 ### Running the integration tests locally
 
@@ -310,18 +324,19 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ```
 .
 ├── .github/workflows/ci.yml   # CI: PostgreSQL service + pytest
-├── data/                      # input .dcm files (not committed)
-├── main.py                    # entry point: resolve input, init DB, build options
-├── processor.py               # validation, hashing, dedupe, parallel orchestration
-├── extractor.py               # pydicom parsing and hierarchical upserts
-├── database.py                # sessions, DB event logging, settings
-├── db_init.py                 # schema creation / reset
-├── config.py                  # credentials from .env
-├── logger.py                  # console/file logging, pretty_log
+├── data/                      # input .dcm files (git-ignored)
+├── samples/                   # 5 de-identified sample .dcm files + source and citation
+├── tests/                     # unit and integration tests (pytest)
+├── main.py                    # entry point: command-line options, init DB, build options
+├── processor.py               # validation, hashing, dedupe, scan-date check, parallel orchestration
+├── extractor.py               # DICOM value conversion and hierarchical upserts
+├── database.py                # connection handling, sessions, DB event logging, settings
+├── db_init.py                 # schema creation, reset and clean-up of old schema objects
+├── config.py                  # database credentials from .env and DEFAULT_SETTINGS
+├── logger.py                  # console and file logging, pretty_log
 ├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
-├── test_extractor.py
-├── test_processor.py
-├── test_integration.py
+├── .env.example               # template for .env (copy it, never commit .env)
+├── .dockerignore              # keeps .env and data out of the Docker image
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -343,10 +358,17 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 
 ## Security and privacy
 
-- The sample data provided is public data and anonymous.
+DICOM files can contain protected health information (PHI), so the project treats data handling as part of the design.
+
+- **Sample data is de-identified.** The files in `samples/` come from the public LIDC-IDRI collection and were de-identified by the publisher: names, birth dates and referring physicians are empty, and `PatientIdentityRemoved` is `YES`.
+- **Know where PHI would land.** With real clinical data, `dicom_patients` (name, birth date, medical record number), `dicom_studies` (referring physician, accession number), and the full header in `dicom_instances.metadata_json` and `dicom_header` would hold identifying information.
+- **Real patient data is out of scope as-is.** The pipeline does not de-identify files itself. Real patient data should be de-identified before import, or the database protected with encryption, access control and auditing appropriate to the applicable regulations (for example HIPAA or GDPR). This project makes no compliance claims.
+- **Secrets stay out of git.** Credentials live in a git-ignored `.env`; the repository only ships `.env.example` with local development values, and `.dockerignore` keeps `.env` out of the Docker image.
+- **Untrusted file paths are contained.** Every input path is resolved with `realpath` and must stay inside the base folder, so `..` tricks and symlinks cannot reach other files. Filenames are restricted to letters, digits, `_`, `-`, `.` and spaces.
+- **No SQL injection from file contents.** Every value read from a DICOM file or setting is passed with psycopg2 parameter binding. The only SQL built with string formatting is the clean-up of old index names, which are constants in `db_init.py`.
 
 ---
 
 ## Author
 
-Developed by **MARIA MARINI**
+Developed by **Maria Marini**.
