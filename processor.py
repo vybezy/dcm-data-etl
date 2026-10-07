@@ -2,7 +2,8 @@ import os
 import re
 import hashlib
 import pydicom
-from datetime import datetime, timezone, timedelta
+import calendar
+from datetime import date, datetime, timezone, timedelta
 from dataclasses import asdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from config import config
@@ -10,7 +11,7 @@ import psycopg2
 from utils import ImportOptions, ImportErrorWithContext, handle_exception, Profiler
 from logger import pretty_log, logger
 from database import log_db_event
-from extractor import process_dicom_file
+from extractor import process_dicom_file, parse_dicom_date
 
 
 # ------------------------- File Processing -------------------------
@@ -36,6 +37,54 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
     if common != base_abs:
         raise ImportErrorWithContext(f"Path traversal or escape detected: {candidate_real} is not under {base_abs}")
     return candidate_real
+
+# DICOM date tags checked in order of preference when deciding how old a scan is
+SCAN_DATE_TAGS = ("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate")
+
+
+def read_dicom_header(path: str):
+    """Reads the DICOM header only (pixel data is skipped). Raises if the file is not valid DICOM."""
+    return pydicom.dcmread(path, stop_before_pixels=True)
+
+
+def subtract_months(day: date, months: int) -> date:
+    """Calendar-correct 'N months before day' (Mar 31 minus 1 month -> Feb 28/29)."""
+    total = day.year * 12 + (day.month - 1) - months
+    year, month = divmod(total, 12)
+    month += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(day.day, last_day))
+
+
+def get_scan_date(dataset):
+    """
+    Returns (date, tag_name) for the first valid scan date in SCAN_DATE_TAGS,
+    or (None, None) if the file has none.
+    """
+    for tag in SCAN_DATE_TAGS:
+        iso = parse_dicom_date(dataset.get(tag, None))
+        if iso:
+            return date.fromisoformat(iso), tag
+    return None, None
+
+
+def check_scan_age(dataset, max_age_months: int, today: date = None):
+    """
+    Validates the scan's own date (not the file's timestamp on disk).
+    Returns None if the scan is acceptable, otherwise the rejection reason.
+    Files with no scan date are accepted, because there is nothing to judge.
+    """
+    today = today or datetime.now(timezone.utc).date()
+    scan_date, tag = get_scan_date(dataset)
+    if scan_date is None:
+        return None
+    oldest_allowed = subtract_months(today, max_age_months)
+    if scan_date < oldest_allowed:
+        return f"Scan too old: {tag}={scan_date} is before {oldest_allowed} (limit {max_age_months} months)"
+    if scan_date > today + timedelta(days=1):  # 1 day of slack for time zones
+        return f"Scan date in future: {tag}={scan_date}"
+    return None
+
 
 def compute_sha256(path: str) -> str:
     with open(path, "rb") as f:
@@ -91,21 +140,6 @@ def process_file(path: str, options_dict: dict):
             result.update(status="invalid", message=reason)
             return result
 
-        file_date = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
-        if file_date < datetime.now(timezone.utc) - timedelta(days=options.max_file_age_months*30):
-            reason = f"File too old: {file_date}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
-            
-        if file_date > datetime.now(timezone.utc) + timedelta(days=30):
-            reason = f"File date in future: {file_date}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
-
         sha = compute_sha256(abs_path)
 
         # Duplicate check against the corrected dicom_files table
@@ -119,6 +153,26 @@ def process_file(path: str, options_dict: dict):
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
 
+        # Read the header once: used for the scan-date check and then for extraction
+        try:
+            dataset = read_dicom_header(abs_path)
+        except Exception as e:
+            reason = f"Unreadable DICOM file: {type(e).__name__}: {e}"
+            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            logger.debug("Traceback for %s", filename, exc_info=True)
+            log_db_event(conn, options, path, "ERROR", reason, exc=e)
+            result.update(status="error", message=reason)
+            return result
+
+        reason = check_scan_age(dataset, options.max_file_age_months)
+        if reason:
+            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            log_db_event(conn, options, path, "ERROR", reason)
+            result.update(status="invalid", message=reason)
+            return result
+        if get_scan_date(dataset)[0] is None:
+            logger.warning("No scan date in %s; age check skipped", filename)
+
         if options.dry_run:
             pretty_log("DRYRUN", f"Dry run - not inserted", file=filename)
             log_db_event(conn, options, path, "DRYRUN", "Dry run - not inserted")
@@ -127,7 +181,7 @@ def process_file(path: str, options_dict: dict):
 
         # Delegate parsing and hierarchical database insertion to extractor.py
         try:
-            file_id = process_dicom_file(conn, abs_path, filename, sha, st.st_size)
+            file_id = process_dicom_file(conn, dataset, abs_path, filename, sha, st.st_size)
             conn.commit()
 
             pretty_log("SUCCESS", f"Successfully imported {filename} (ID: {file_id})", file=filename)

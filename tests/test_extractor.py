@@ -236,9 +236,9 @@ def test_process_dicom_file_propagates_errors_without_logging():
     from extractor import process_dicom_file
     conn, _ = make_mock_conn()
 
-    with patch("extractor.pydicom.dcmread", side_effect=ValueError("not dicom")), \
+    with patch("extractor.extract_and_upsert_patient", side_effect=ValueError("bad patient")), \
          patch("extractor.logger") as log:
-        with pytest.raises(ValueError, match="not dicom"):
-            process_dicom_file(conn, "x.dcm", "x.dcm", "abc", 10)
+        with pytest.raises(ValueError, match="bad patient"):
+            process_dicom_file(conn, Dataset(), "x.dcm", "x.dcm", "abc", 10)
 
     assert not log.method_calls

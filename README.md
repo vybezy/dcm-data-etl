@@ -33,7 +33,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. |
 | **Relational modelling** | Patient → Study → Series Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Bulk inserts use `execute_values`. |
-| **Input validation** | Checks file extension, filename whitelist, size limits, file-age limits and future-date rejection. |
+| **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
 | **Duplicate prevention** | SHA-256 content hashing, and unique constraints on DICOM UIDs. |
 | **Transactional safety** | Each file is one transaction. A failure at any step rolls back the whole patient → instance chain. |
@@ -241,7 +241,7 @@ Import behaviour is tunable at runtime through the `dicom_settings` table:
 |---|---|---|
 | `min_file_size` | 100 KB | Smaller files are rejected |
 | `max_file_size` | 99 MB | Larger files are rejected |
-| `max_file_age_months` | 1200 | Older files are rejected |
+| `max_file_age_months` | 1200 | Scans older than this are rejected, judged by the DICOM `StudyDate` (falling back to `SeriesDate`, `AcquisitionDate`, `ContentDate`), not by the file's timestamp on disk |
 | `workers` | 4 | Parallel worker processes (`0` = sequential) |
 | `subject_min_length` | 2 | Minimum subject length |
 | `safe_dicom_folder` | empty | Reserved for a safe-folder path |
@@ -258,10 +258,11 @@ Every file ends in exactly one status, summarized at the end of each run:
 
 1. **Path check:** resolve the real path and confirm it is inside the base folder.
 2. **Filename and extension:** must end in `.dcm` and match the filename whitelist.
-3. **Size and age:** must be within the configured limits and not dated in the future.
+3. **Size:** must be within the configured limits.
 4. **Hash and duplicate check:** compute SHA-256 and look it up in `dicom_instances`.
-5. **Extraction (one transaction):** upsert patient → study → series, insert the instance, then bulk-insert all header tags.
-6. **Commit or roll back:** success commits and logs `SUCCESS`. Any error rolls back the entire file, so no partial hierarchy is left behind.
+5. **Header and scan date:** read the DICOM header once (pixel data skipped) and reject the file if its `StudyDate` is older than `max_file_age_months` or more than a day in the future. Files with no date at all are accepted with a warning. `--dry-run` stops after this step.
+6. **Extraction (one transaction):** upsert patient → study → series, insert the instance, then bulk-insert all header tags.
+7. **Commit or roll back:** success commits and logs `SUCCESS`. Any error rolls back the entire file, so no partial hierarchy is left behind.
 
 Each step logs to the console and, when a session exists, to `dicom_logger`.
 
