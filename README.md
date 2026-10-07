@@ -228,12 +228,14 @@ Import behaviour is tunable at runtime through the `dicom_settings` table:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `min_file_size` | 300 KB | Smaller files are rejected |
+| `min_file_size` | 100 KB | Smaller files are rejected |
 | `max_file_size` | 99 MB | Larger files are rejected |
-| `max_file_age_months` | 24 | Older files are rejected |
+| `max_file_age_months` | 1200 | Older files are rejected |
 | `workers` | 4 | Parallel worker processes (`0` = sequential) |
-| `subject_min_length` | 3 | Minimum subject length |
-| `safe_dicom_folder` | none | Reserved for a safe-folder path |
+| `subject_min_length` | 2 | Minimum subject length |
+| `safe_dicom_folder` | empty | Reserved for a safe-folder path |
+
+The defaults are defined once, in `DEFAULT_SETTINGS` in `config.py`. They are written to the table on first run and never overwrite a value you have changed.
 
 Every file ends in exactly one status, summarized at the end of each run:
 

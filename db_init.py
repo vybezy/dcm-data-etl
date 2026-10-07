@@ -1,5 +1,5 @@
 import logging
-from config import config
+from config import config, DEFAULT_SETTINGS
 import psycopg2
 
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
@@ -282,16 +282,10 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
 
     # Default settings: inserted on every run, but ON CONFLICT keeps any value
     # an operator has already changed, so tuned settings survive restarts.
-    cur.execute("""
-        INSERT INTO dicom_settings (key, value) VALUES
-        ('min_file_size', '102400'),
-        ('max_file_size', '103809024'),
-        ('subject_min_length', '2'),
-        ('max_file_age_months', '1200'),
-        ('workers', '4'),
-        ('safe_dicom_folder', '')
-        ON CONFLICT (key) DO NOTHING;
-    """)
+    cur.executemany(
+        "INSERT INTO dicom_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;",
+        list(DEFAULT_SETTINGS.items()),
+    )
     
     conn.commit()
     cur.close()

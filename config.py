@@ -1,6 +1,19 @@
 import os
 from dotenv import load_dotenv
 
+
+# Default import settings: the single source of truth.
+# db_init() seeds the dicom_settings table from this dict, and main.py falls back
+# to it if a key is missing. Values are strings because the table stores TEXT.
+DEFAULT_SETTINGS = {
+    "min_file_size": str(100 * 1024),           # 100 KB
+    "max_file_size": str(99 * 1024 * 1024),     # 99 MB
+    "max_file_age_months": "1200",              # 100 years
+    "workers": "4",                             # 0 = sequential
+    "subject_min_length": "2",
+    "safe_dicom_folder": "",
+}
+
 def config():
 
     # Loads database configuration from .env file.
