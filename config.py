@@ -10,8 +10,6 @@ DEFAULT_SETTINGS = {
     "max_file_size": str(99 * 1024 * 1024),     # 99 MB
     "max_file_age_months": "1200",              # 100 years
     "workers": "4",                             # 0 = sequential
-    "subject_min_length": "2",
-    "safe_dicom_folder": "",
 }
 
 def config():

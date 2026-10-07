@@ -81,13 +81,9 @@ class ImportOptions:
     base_folder: str
     min_size: int
     max_size: int
-    subject_min_length: int
     max_file_age_months: int
     workers: int
     dry_run: bool = False
-    debug: bool = False
-    log_to_db: bool = True
-    safe_dicom_folder: Optional[str] = None
     session_id: Optional[int] = None
 
 class ImportErrorWithContext(Exception):

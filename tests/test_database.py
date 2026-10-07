@@ -82,7 +82,7 @@ def test_load_settings_returns_dict_and_closes(no_config):
 def test_handle_exception_closes_its_db_connection(no_config):
     conn, _ = make_conn()
     options = ImportOptions(
-        base_folder=".", min_size=1, max_size=10, subject_min_length=2,
+        base_folder=".", min_size=1, max_size=10,
         max_file_age_months=1, workers=0, session_id=5,
     )
     with patch("database.psycopg2.connect", return_value=conn), \
@@ -100,7 +100,7 @@ def test_handle_exception_closes_its_db_connection(no_config):
 def test_log_db_event_survives_unknown_caller_module():
     conn, cur = make_conn()
     options = ImportOptions(
-        base_folder=".", min_size=1, max_size=10, subject_min_length=2,
+        base_folder=".", min_size=1, max_size=10,
         max_file_age_months=1, workers=0, session_id=5,
     )
     with patch("database.inspect.getmodule", return_value=None):
