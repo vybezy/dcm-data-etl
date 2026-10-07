@@ -1,3 +1,6 @@
+"""
+shared helpers: import options, the profiler, the exception handler and the azure download.
+"""
 import io
 import sys
 import os
@@ -18,13 +21,13 @@ PROFILE_ENV_VAR = "DICOM_PROFILE"
 
 
 def profiling_enabled() -> bool:
-    """Profiling is opt-in: set DICOM_PROFILE=1 (or true/yes) to turn it on."""
+    """profiling is opt-in: set DICOM_PROFILE=1 (or true/yes) to turn it on."""
     return os.getenv(PROFILE_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
 
 
 def Profiler(func):
     """
-    Opt-in line-by-line profiler (requires line_profiler).
+    opt-in line-by-line profiler (requires line_profiler).
 
     Disabled by default: the decorator then returns the original function
     unchanged, so production imports pay zero overhead. When DICOM_PROFILE=1,
@@ -73,8 +76,10 @@ def Profiler(func):
 # ------------------------- Error Handling -------------------------
 
 
-@dataclass # creates automatically constructor , saves time in writing the class
+@dataclass  # generates the constructor from the fields below
 class ImportOptions:
+    """settings for one import run, passed to every worker."""
+
     base_folder: str
     min_size: int
     max_size: int
@@ -84,18 +89,18 @@ class ImportOptions:
     session_id: Optional[int] = None
 
 class ImportErrorWithContext(Exception):
-    pass
+    """raised when a file path is rejected (e.g. it points outside the base folder)."""
 
-# Exception Handler
 def handle_exception(e: Exception, options: ImportOptions = None, file_path: str = None, level: str = "CRITICAL"):
+    """
+    logs an unexpected exception to the console, the critical log file and,
+    when there is an import session, the dicom_logger table. never raises itself.
+    """
     try:
-        # traceback in string
         tb_str = traceback.format_exc()
-
-        # exception type
         exc_type = type(e).__name__
 
-        # Tries to get last frame from traceback where exception occured
+        # find where the exception happened (last frame of the traceback)
         tb = sys.exc_info()[2]
         if tb:
             last_frame = traceback.extract_tb(tb)[-1]
@@ -103,20 +108,20 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
             lineno = last_frame.lineno
             funcname = last_frame.name
         else:
-            # fallback to caller frame if theres no traceback
+            # no traceback available, so use the caller instead
             caller = inspect.currentframe().f_back
             filename = caller.f_code.co_filename
             lineno = caller.f_lineno
             funcname = caller.f_code.co_name
 
-        # Message to where its stored
+        # full message with location and traceback, stored in the logs
         message = f"{exc_type} in {funcname} at {filename}:{lineno} -> {e}\n{tb_str}"
 
-        # Console + critical log file, with the stack trace
+        # console + critical log file, with the stack trace
         pretty_log(level, f"{exc_type}: {e}", file=file_path, extra=f"{filename}:{lineno}")
         logger.exception(message)  # writes the full traceback to the log handlers
 
-        # Database logging (if there's session_id)
+        # database logging (only when there is an import session)
         session_id = getattr(options, "session_id", None) if options is not None else None
         if session_id:
             try:
@@ -124,11 +129,11 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
                 with db_connection() as connection:
                     log_db_event(connection, options, file_path or "", level, message, exc=e)
             except Exception as db_e:
-                # Doesn't allow handler to break - fallback to local logger
+                # the handler must never fail, so fall back to the local logger
                 logger.error("Failed to log exception to DB: %s", db_e)
 
     except Exception as handler_err:
-        # if something breaks in handler, write in local logger
+        # if the handler itself breaks, write to the local logger
         logger.critical("Exception inside handle_exception(): %s", handler_err)
         logger.critical("Original exception was: %s", e)
 
@@ -138,7 +143,7 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
 
 def download_dicom_from_azure(download_dir: str = "/data") -> str:
     """
-    Connects to Azure Blob Storage using a SAS connection string and downloads
+    connects to Azure Blob Storage using a SAS connection string and downloads
     all .dcm files into the local container directory prior to processing.
     """
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")

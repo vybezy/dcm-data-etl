@@ -1,3 +1,6 @@
+"""
+database helpers: opening connections, import sessions, event logging and settings.
+"""
 import socket
 import psycopg2
 import multiprocessing
@@ -17,7 +20,7 @@ from typing import Dict, Any
 @contextmanager
 def db_connection():
     """
-    Opens a PostgreSQL connection for one unit of work.
+    opens a PostgreSQL connection for one unit of work.
     Commits if the block succeeds, rolls back if it raises, and always closes
     the connection, so no code path can leak one.
 
@@ -36,8 +39,8 @@ def db_connection():
         conn.close()
 
 
-# saves user data in dicom_logger_session
 def create_import_session() -> int:
+    """starts a new import session (one per run) and returns its id. stores the machine name and ip."""
     hostname = socket.gethostname()
     try:
         ip = socket.gethostbyname(hostname)
@@ -52,6 +55,10 @@ def create_import_session() -> int:
         return cur.fetchone()[0]
 
 def log_db_event(conn, options: ImportOptions, file_path: str, level: str, message: str, exc: Exception = None):
+    """
+    writes one event to dicom_logger, with where it was called from.
+    pass exc to also store the exception type and stack trace. does nothing without a session.
+    """
     if not options.session_id:
         return
     frame = inspect.currentframe().f_back
@@ -76,8 +83,8 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
         ))
         conn.commit()
 
-# loads settings from db
 def load_settings_from_db() -> Dict[str, Any]:
+    """returns the dicom_settings table as a {key: value} dict."""
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT key, value FROM dicom_settings;")
         return {k: v for k, v in cur.fetchall()}
