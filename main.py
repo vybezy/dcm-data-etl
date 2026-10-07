@@ -16,6 +16,7 @@ import sys
 import glob
 import argparse
 
+from config import DEFAULT_SETTINGS
 from db_init import db_init
 from utils import ImportOptions, download_dicom_from_azure
 from database import create_import_session, load_settings_from_db
@@ -97,17 +98,20 @@ def main(argv=None) -> int:
     session_id = create_import_session()
     settings = load_settings_from_db()
 
-    workers = args.workers if args.workers is not None else int(settings.get("workers", 4))
+    # values from the database win; DEFAULT_SETTINGS covers any missing key
+    settings = {**DEFAULT_SETTINGS, **settings}
+
+    workers = args.workers if args.workers is not None else int(settings["workers"])
 
     options = ImportOptions(
         base_folder=base_folder,
-        min_size=int(settings.get("min_file_size", 300 * 1024)),
-        max_size=int(settings.get("max_file_size", 99 * 1024 * 1024)),
-        subject_min_length=int(settings.get("subject_min_length", 3)),
-        max_file_age_months=int(settings.get("max_file_age_months", 24)),
+        min_size=int(settings["min_file_size"]),
+        max_size=int(settings["max_file_size"]),
+        subject_min_length=int(settings["subject_min_length"]),
+        max_file_age_months=int(settings["max_file_age_months"]),
         workers=workers,
         dry_run=args.dry_run,
-        safe_dicom_folder=settings.get("safe_dicom_folder"),
+        safe_dicom_folder=settings["safe_dicom_folder"],
         session_id=session_id,
     )
 
