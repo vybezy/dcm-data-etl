@@ -1,17 +1,25 @@
 import logging
-from config import config, DEFAULT_SETTINGS
-import psycopg2
+from config import DEFAULT_SETTINGS
+from database import db_connection
+
 
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
-
-    params = config()
-    conn = psycopg2.connect(**params)
-    
+    """
+    Creates all pipeline tables (and drops them first if reset_tables=True).
+    Runs in one transaction: if any statement fails, nothing is half-created,
+    and the connection is always closed.
+    """
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    cur = conn.cursor()
-    
+    with db_connection() as conn, conn.cursor() as cur:
+        _create_schema(cur, reset_tables, logger)
+
+    logger.info("Database tables initialized (reset: %s)", reset_tables)
+
+
+def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
+
     if reset_tables:
         logger.info("Resetting database tables...")
         cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
@@ -286,8 +294,3 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
         "INSERT INTO dicom_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;",
         list(DEFAULT_SETTINGS.items()),
     )
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-    logger.info("Database tables initialized (reset: %s)", reset_tables)
