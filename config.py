@@ -16,9 +16,9 @@ def config():
 
     # Loads database configuration from .env file.
 
-    # load .env file variables 
+    # load .env file variables
     load_dotenv()
-    
+
     # saves environment variables to the dictionary keys
     db = {
         'host': os.getenv('DB_HOST'),
@@ -26,7 +26,7 @@ def config():
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD')
     }
-    
+
     # missing .env file / misspelled variable safety check
     if not all(db.values()):
         raise Exception(

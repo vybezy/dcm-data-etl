@@ -2,8 +2,6 @@ import json
 from datetime import datetime
 import pydicom
 import psycopg2.extras
-from pydicom.errors import InvalidDicomError
-from config import config
 from logger import logger
 from utils import Profiler
 
@@ -138,7 +136,7 @@ def extract_and_upsert_patient(conn, dataset: pydicom.dataset.FileDataset, sha: 
         cur.execute("""
             INSERT INTO dicom_patients (medical_record_number, patient_name, birth_date, sex)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (medical_record_number) DO UPDATE 
+            ON CONFLICT (medical_record_number) DO UPDATE
             SET patient_name = EXCLUDED.patient_name
             RETURNING patient_id;
         """, (mrn, name, birth_date, sex))
@@ -162,11 +160,11 @@ def extract_and_upsert_study(conn, dataset: pydicom.dataset.FileDataset, patient
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO dicom_studies (
-                patient_id, study_instance_uid, study_date, study_time, 
+                patient_id, study_instance_uid, study_date, study_time,
                 accession_number, study_description, referring_physician
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (study_instance_uid) DO UPDATE 
+            ON CONFLICT (study_instance_uid) DO UPDATE
             SET study_description = EXCLUDED.study_description
             RETURNING study_id;
         """, (patient_id, study_uid, study_date, study_time, accession, description, physician))
@@ -185,7 +183,7 @@ def extract_and_upsert_series(conn, dataset: pydicom.dataset.FileDataset, study_
     modality = dataset.get("Modality", "UNKNOWN")
     body_part = dataset.get("BodyPartExamined", None)
     series_desc = dataset.get("SeriesDescription", None)
-    
+
     slice_thick = dataset.get("SliceThickness", None)
     try:
         slice_thick = float(slice_thick) if slice_thick else None
@@ -203,18 +201,18 @@ def extract_and_upsert_series(conn, dataset: pydicom.dataset.FileDataset, study_
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO dicom_series (
-                study_id, series_instance_uid, series_number, modality, 
+                study_id, series_instance_uid, series_number, modality,
                 body_part_examined, series_description, slice_thickness_mm, pixel_spacing
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (series_instance_uid) DO UPDATE 
+            ON CONFLICT (series_instance_uid) DO UPDATE
             SET series_description = EXCLUDED.series_description
             RETURNING series_id;
         """, (study_id, series_uid, series_num, modality, body_part, series_desc, slice_thick, spacing_array))
         return cur.fetchone()[0]
 
 @Profiler
-def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_id: int, 
+def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_id: int,
                             filename: str, abs_path: str, sha: str, file_size: int) -> int:
     """
     Extracts the file-level instances and returns the master file_id.
@@ -222,11 +220,11 @@ def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_i
     sop_uid = str(dataset.get("SOPInstanceUID", ""))
     if not sop_uid:
         raise ValueError("Missing critical DICOM Tag: SOPInstanceUID")
-        
+
     instance_num = dataset.get("InstanceNumber", None)
     rows = dataset.get("Rows", None)
     cols = dataset.get("Columns", None)
-    
+
     img_pos = dataset.get("ImagePositionPatient", None)
     pos_array = None
     if img_pos and isinstance(img_pos, pydicom.multival.MultiValue) and len(img_pos) == 3:
@@ -240,8 +238,8 @@ def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_i
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO dicom_instances (
-                series_id, sop_instance_uid, instance_number, file_name, 
-                file_path, file_size_bytes, file_sha256_hash, image_position_patient, 
+                series_id, sop_instance_uid, instance_number, file_name,
+                file_path, file_size_bytes, file_sha256_hash, image_position_patient,
                 rows, columns, metadata_json
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -255,11 +253,11 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
     Extracts all individual DICOM tags and uses execute_values for high-speed bulk inserts.
     """
     header_records = []
-    
+
     for elem in dataset:
         if elem.tag.group == 0x7fe0:  # Skip raw pixel data
             continue
-        
+
         name = elem.keyword if elem.keyword else "Unknown"
         vr = elem.VR if elem.VR else "UN"
         val_str = clean_tag_value(elem.value, vr)
