@@ -15,5 +15,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.log
-profiler_logs.txt
+profiler_logs*.txt
 tests/
