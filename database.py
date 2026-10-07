@@ -13,7 +13,7 @@ from typing import Dict, Any
 # ------------------------- DB Helpers -------------------------
 
 
-# saves user data in c3d_logger_session
+# saves user data in dicom_logger_session
 def create_import_session() -> int:
     params = config()
     conn = psycopg2.connect(**params)
@@ -25,7 +25,7 @@ def create_import_session() -> int:
     machineid = f"{hostname} ({ip})"
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO c3d_logger_session (logses_machineid)
+            INSERT INTO dicom_logger_session (logses_machineid)
             VALUES (%s) RETURNING logses_id;
         """, (machineid,))
         session_id = cur.fetchone()[0]
@@ -45,8 +45,8 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
     stack = traceback.format_exc() if exc else None
     with conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO c3d_logger (
-                log_logses_id, log_timestamp, log_level, log_c3dfile,
+            INSERT INTO dicom_logger (
+                log_logses_id, log_timestamp, log_level, log_dicomfile,
                 log_message, log_module, log_function, log_line_number,
                 log_process_name, log_thread_name, log_exception_type, log_stack_trace
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);
@@ -62,7 +62,7 @@ def load_settings_from_db() -> Dict[str, Any]:
     conn = psycopg2.connect(**params)
     cur = conn.cursor()
     conn.commit()
-    cur.execute("SELECT key, value FROM c3d_settings;")
+    cur.execute("SELECT key, value FROM dicom_settings;")
     rows = cur.fetchall()
     settings = {k: v for k, v in rows}
     cur.close()
