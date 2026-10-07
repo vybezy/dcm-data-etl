@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 import pydicom
 import psycopg2.extras
 from pydicom.errors import InvalidDicomError
@@ -24,6 +25,50 @@ def clean_tag_value(value):
         return str(value)
     return str(value)
 
+def parse_dicom_date(value):
+    """
+    Converts a DICOM DA value (YYYYMMDD) to an ISO date string 'YYYY-MM-DD'.
+    Also accepts the legacy ACR-NEMA form YYYY.MM.DD.
+    Returns None for empty or invalid dates (e.g. '20241399') instead of raising,
+    so one bad tag doesn't make the whole file fail to import.
+    """
+    if value is None:
+        return None
+    text = str(value).strip().replace(".", "")
+    if not text:
+        return None
+    # strptime alone would accept '2024011' as 2024-01-01, so require 8 digits
+    if len(text) == 8 and text.isdigit():
+        try:
+            return datetime.strptime(text, "%Y%m%d").date().isoformat()
+        except ValueError:
+            pass
+    logger.warning("Ignoring invalid DICOM date: %r", str(value))
+    return None
+
+
+def parse_dicom_time(value):
+    """
+    Converts a DICOM TM value (HH, HHMM, HHMMSS or HHMMSS.FFFFFF) to 'HH:MM:SS'.
+    Also accepts the legacy form HH:MM:SS. Fractional seconds are dropped.
+    Returns None for empty or invalid times (e.g. '256000').
+    """
+    if value is None:
+        return None
+    text = str(value).strip().replace(":", "").split(".")[0]
+    if not text:
+        return None
+    formats = {6: "%H%M%S", 4: "%H%M", 2: "%H"}  # DICOM allows truncated times
+    fmt = formats.get(len(text))
+    if fmt and text.isdigit():
+        try:
+            return datetime.strptime(text, fmt).strftime("%H:%M:%S")
+        except ValueError:
+            pass
+    logger.warning("Ignoring invalid DICOM time: %r", str(value))
+    return None
+
+
 def build_metadata_json(dataset: pydicom.dataset.FileDataset) -> str:
     """Serialize the entire DICOM header into a queryable JSON dictionary."""
     metadata = {}
@@ -45,16 +90,8 @@ def extract_and_upsert_patient(conn, dataset: pydicom.dataset.FileDataset, sha: 
     """
     mrn = str(dataset.get("PatientID", f"UNKNOWN_{sha[:8]}"))
     name = str(dataset.get("PatientName", "ANONYMOUS"))
-    birth_date = dataset.get("PatientBirthDate", None)
+    birth_date = parse_dicom_date(dataset.get("PatientBirthDate", None))
     sex = dataset.get("PatientSex", None)
-
-    if birth_date and len(birth_date) == 8:
-        try:
-            birth_date = f"{birth_date[:4]}-{birth_date[4:6]}-{birth_date[6:]}"
-        except Exception:
-            birth_date = None
-    else:
-        birth_date = None
 
     with conn.cursor() as cur:
         cur.execute("""
@@ -75,27 +112,11 @@ def extract_and_upsert_study(conn, dataset: pydicom.dataset.FileDataset, patient
     if not study_uid:
         raise ValueError("Missing critical DICOM Tag: StudyInstanceUID")
 
-    study_date = dataset.get("StudyDate", None)
-    study_time = dataset.get("StudyTime", None)
+    study_date = parse_dicom_date(dataset.get("StudyDate", None))
+    study_time = parse_dicom_time(dataset.get("StudyTime", None))
     accession = dataset.get("AccessionNumber", None)
     description = dataset.get("StudyDescription", None)
     physician = str(dataset.get("ReferringPhysicianName", ""))
-
-    if study_date and len(study_date) == 8:
-        try:
-            study_date = f"{study_date[:4]}-{study_date[4:6]}-{study_date[6:]}"
-        except Exception:
-            study_date = None
-    else:
-        study_date = None
-        
-    if study_time and len(study_time) >= 6:
-        try:
-            study_time = f"{study_time[:2]}:{study_time[2:4]}:{study_time[4:6]}"
-        except Exception:
-            study_time = None
-    else:
-        study_time = None
 
     with conn.cursor() as cur:
         cur.execute("""
