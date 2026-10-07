@@ -226,3 +226,19 @@ def test_upsert_patient_invalid_birth_date_is_stored_as_null():
 
     extract_and_upsert_patient(conn, ds, "abcdef1234567890")
     assert cur.execute.call_args[0][1][2] is None
+
+
+# ------------------------- process_dicom_file -------------------------
+
+
+def test_process_dicom_file_propagates_errors_without_logging():
+    """Error reporting belongs to processor.py; the extractor must not log on its own."""
+    from extractor import process_dicom_file
+    conn, _ = make_mock_conn()
+
+    with patch("extractor.pydicom.dcmread", side_effect=ValueError("not dicom")), \
+         patch("extractor.logger") as log:
+        with pytest.raises(ValueError, match="not dicom"):
+            process_dicom_file(conn, "x.dcm", "x.dcm", "abc", 10)
+
+    assert not log.method_calls

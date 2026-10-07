@@ -5,7 +5,7 @@ import psycopg2.extras
 from pydicom.errors import InvalidDicomError
 from config import config
 from logger import logger
-from utils import Profiler, handle_exception
+from utils import Profiler
 
 
 # ------------------------- Metadata Extraction -------------------------
@@ -246,20 +246,18 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
 def process_dicom_file(conn, abs_path: str, filename: str, sha: str, file_size: int) -> int:
     """
     Main entry point. Coordinates the hierarchical extraction and insertion sequentially.
-    """
-    try:
-        dataset = pydicom.dcmread(abs_path, stop_before_pixels=True)
-        
-        patient_id = extract_and_upsert_patient(conn, dataset, sha)
-        study_id = extract_and_upsert_study(conn, dataset, patient_id)
-        series_id = extract_and_upsert_series(conn, dataset, study_id)
-        file_id = extract_and_insert_file(conn, dataset, series_id, filename, abs_path, sha, file_size)
-        
-        extract_and_insert_headers(conn, dataset, file_id)
 
-        logger.info(f"Successfully processed medical hierarchy for file_id: {file_id}")
-        return file_id
-        
-    except Exception as e:
-        handle_exception(e, options=None, file_path=abs_path, level="ERROR")
-        raise
+    Errors are deliberately not caught here: they propagate to processor.process_file(),
+    which rolls back the transaction and logs the failure exactly once
+    (console + dicom_logger, including exception type and stack trace).
+    """
+    dataset = pydicom.dcmread(abs_path, stop_before_pixels=True)
+
+    patient_id = extract_and_upsert_patient(conn, dataset, sha)
+    study_id = extract_and_upsert_study(conn, dataset, patient_id)
+    series_id = extract_and_upsert_series(conn, dataset, study_id)
+    file_id = extract_and_insert_file(conn, dataset, series_id, filename, abs_path, sha, file_size)
+
+    extract_and_insert_headers(conn, dataset, file_id)
+
+    return file_id

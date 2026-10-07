@@ -337,3 +337,36 @@ def test_scan_and_import_only_processes_given_file_list(tmp_path):
         results = scan_and_import(str(tmp_path), make_options(tmp_path), file_list=only)
 
     assert [r["path"] for r in results] == only
+
+
+def test_extraction_error_is_logged_once_with_exception_details(tmp_path, mock_db):
+    """The DB event gets the exception object, so dicom_logger stores type + stack trace."""
+    f = tmp_path / "a.dcm"
+    f.write_bytes(b"data")
+
+    with patch("processor.process_dicom_file", side_effect=ValueError("bad tag")), \
+         patch("processor.log_db_event") as log_event, \
+         patch("processor.pretty_log") as pretty:
+        result = run_process_file(f, make_options(tmp_path))
+
+    assert result["status"] == "error"
+    assert "ValueError: bad tag" in result["message"]
+    error_events = [c for c in log_event.call_args_list if c.args[3] == "ERROR"]
+    assert len(error_events) == 1
+    assert isinstance(error_events[0].kwargs["exc"], ValueError)
+    assert [c.args[0] for c in pretty.call_args_list].count("ERROR") == 1
+
+
+def test_unique_violation_is_logged_as_duplicate_never_error(tmp_path, mock_db):
+    f = tmp_path / "a.dcm"
+    f.write_bytes(b"data")
+
+    with patch("processor.process_dicom_file", side_effect=psycopg2.errors.UniqueViolation()), \
+         patch("processor.log_db_event") as log_event, \
+         patch("processor.pretty_log") as pretty:
+        result = run_process_file(f, make_options(tmp_path))
+
+    assert result["status"] == "duplicate"
+    levels = [c.args[3] for c in log_event.call_args_list]
+    assert levels == ["DUPLICATE"]
+    assert "ERROR" not in [c.args[0] for c in pretty.call_args_list]
