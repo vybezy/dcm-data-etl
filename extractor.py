@@ -243,16 +243,17 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
                 page_size=1000
             )
 
-def process_dicom_file(conn, abs_path: str, filename: str, sha: str, file_size: int) -> int:
+def process_dicom_file(conn, dataset: pydicom.dataset.FileDataset, abs_path: str,
+                       filename: str, sha: str, file_size: int) -> int:
     """
     Main entry point. Coordinates the hierarchical extraction and insertion sequentially.
+    `dataset` is the header already read (and validated) by processor.process_file(),
+    so the file is only parsed once.
 
     Errors are deliberately not caught here: they propagate to processor.process_file(),
     which rolls back the transaction and logs the failure exactly once
     (console + dicom_logger, including exception type and stack trace).
     """
-    dataset = pydicom.dcmread(abs_path, stop_before_pixels=True)
-
     patient_id = extract_and_upsert_patient(conn, dataset, sha)
     study_id = extract_and_upsert_study(conn, dataset, patient_id)
     series_id = extract_and_upsert_series(conn, dataset, study_id)

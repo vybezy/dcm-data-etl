@@ -1,11 +1,12 @@
 import os
-import time
 import hashlib
 from dataclasses import asdict
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import psycopg2
 import pytest
+from pydicom.dataset import Dataset
 
 from processor import (
     is_valid_filename,
@@ -13,6 +14,9 @@ from processor import (
     compute_sha256,
     process_file,
     scan_and_import,
+    subtract_months,
+    get_scan_date,
+    check_scan_age,
 )
 from utils import ImportOptions, ImportErrorWithContext
 
@@ -42,12 +46,27 @@ def make_mock_conn(fetchone_value=None):
     return conn
 
 
+def make_header(**tags):
+    """A DICOM header with only the given tags, e.g. make_header(StudyDate="20240115")."""
+    ds = Dataset()
+    for name, value in tags.items():
+        setattr(ds, name, value)
+    return ds
+
+
 @pytest.fixture
-def mock_db():
-    """Replaces config, DB connection, and DB/console logging for process_file tests."""
+def header():
+    """The header process_file() will 'read'. Tests can add tags to it before running."""
+    return make_header(StudyDate=date.today().strftime("%Y%m%d"))
+
+
+@pytest.fixture
+def mock_db(header):
+    """Replaces config, DB connection, DICOM parsing and DB/console logging for process_file tests."""
     conn = make_mock_conn()
     with patch("processor.config", return_value={}), \
          patch("processor.psycopg2.connect", return_value=conn), \
+         patch("processor.read_dicom_header", return_value=header), \
          patch("processor.log_db_event"), \
          patch("processor.pretty_log"):
         yield conn
@@ -200,26 +219,79 @@ def test_process_file_rejects_too_large(tmp_path, mock_db):
     assert result["status"] == "invalid"
 
 
-def test_process_file_rejects_too_old(tmp_path, mock_db):
+def test_process_file_rejects_old_scan(tmp_path, header, mock_db):
+    header.StudyDate = "20000101"
     f = tmp_path / "old.dcm"
     f.write_bytes(b"data")
-    five_years_ago = time.time() - 5 * 365 * 24 * 3600
-    os.utime(f, (five_years_ago, five_years_ago))
 
     result = run_process_file(f, make_options(tmp_path, max_file_age_months=24))
     assert result["status"] == "invalid"
-    assert "too old" in result["message"]
+    assert "Scan too old: StudyDate=2000-01-01" in result["message"]
 
 
-def test_process_file_rejects_future_date(tmp_path, mock_db):
+def test_process_file_rejects_future_scan(tmp_path, header, mock_db):
+    header.StudyDate = "29990101"
     f = tmp_path / "future.dcm"
     f.write_bytes(b"data")
-    future = time.time() + 90 * 24 * 3600
-    os.utime(f, (future, future))
 
     result = run_process_file(f, make_options(tmp_path))
     assert result["status"] == "invalid"
     assert "future" in result["message"]
+
+
+def test_process_file_ignores_file_timestamp_on_disk(tmp_path, header, mock_db):
+    """A recent scan is accepted even if the file itself is old on disk (and vice versa)."""
+    f = tmp_path / "copied.dcm"
+    f.write_bytes(b"data")
+    old = 315532800  # 1980-01-01 as a Unix timestamp
+    os.utime(f, (old, old))
+
+    with patch("processor.process_dicom_file", return_value=1):
+        result = run_process_file(f, make_options(tmp_path, max_file_age_months=24))
+    assert result["status"] == "inserted"
+
+
+def test_process_file_unreadable_dicom_is_error(tmp_path, mock_db):
+    f = tmp_path / "corrupt.dcm"
+    f.write_bytes(b"data")
+
+    with patch("processor.read_dicom_header", side_effect=ValueError("not a DICOM file")):
+        result = run_process_file(f, make_options(tmp_path))
+    assert result["status"] == "error"
+    assert "Unreadable DICOM file" in result["message"]
+
+
+# ------------------------- scan date helpers -------------------------
+
+
+@pytest.mark.parametrize("day, months, expected", [
+    (date(2026, 10, 7), 24, date(2024, 10, 7)),
+    (date(2026, 3, 31), 1, date(2026, 2, 28)),   # clamps to end of February
+    (date(2024, 3, 31), 1, date(2024, 2, 29)),   # leap year
+    (date(2026, 1, 15), 1, date(2025, 12, 15)),  # crosses a year boundary
+    (date(2026, 10, 7), 0, date(2026, 10, 7)),
+])
+def test_subtract_months(day, months, expected):
+    assert subtract_months(day, months) == expected
+
+
+def test_get_scan_date_prefers_study_date_then_falls_back():
+    assert get_scan_date(make_header(StudyDate="20240115", SeriesDate="20230101")) == (date(2024, 1, 15), "StudyDate")
+    assert get_scan_date(make_header(StudyDate="", SeriesDate="20230101")) == (date(2023, 1, 1), "SeriesDate")
+    assert get_scan_date(make_header(StudyDate="20241399", ContentDate="20220202")) == (date(2022, 2, 2), "ContentDate")
+    assert get_scan_date(make_header()) == (None, None)
+
+
+def test_check_scan_age_boundaries():
+    today = date(2026, 10, 7)
+    assert check_scan_age(make_header(StudyDate="20241007"), 24, today) is None   # exactly at the limit
+    assert "too old" in check_scan_age(make_header(StudyDate="20241006"), 24, today)
+    assert check_scan_age(make_header(StudyDate="20261008"), 24, today) is None   # 1 day of slack
+    assert "future" in check_scan_age(make_header(StudyDate="20261009"), 24, today)
+
+
+def test_check_scan_age_accepts_files_without_a_date():
+    assert check_scan_age(make_header(), 24, date(2026, 10, 7)) is None
 
 
 # ------------------------- process_file: DB paths -------------------------
