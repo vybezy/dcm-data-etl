@@ -40,7 +40,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | **Structured logging** | Console and critical-file logging, plus per-session, per-file event rows in PostgreSQL (module, function, line, process, thread, exception type, stack trace). |
 | **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no redeploy is needed to tune them. |
 | **Cloud ingestion** | Optionally downloads `.dcm` files from Azure Blob Storage before processing. |
-| **Profiling** | An optional `@Profiler` decorator (via `line_profiler`) writes line-by-line timings to `profiler_logs.txt`. |
+| **Profiling** | Opt-in `@Profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
 | **Containerized** | Docker Compose runs PostgreSQL 15 with a health check, and the pipeline starts only once the database is ready. |
 
 ---
@@ -219,6 +219,17 @@ python main.py [PATH] [--workers N] [--dry-run] [--reset] [--no-azure]
 Data is kept between runs by default, so re-running the pipeline on the same folder reports the already-imported files as `duplicate` instead of inserting them again.
 
 The process exits with `0` when no file errored, `1` when at least one file errored, and `2` when the input path does not exist. This makes it easy to use in scripts and CI.
+
+### Profiling
+
+Line-by-line profiling is off by default. To profile a run, install `line_profiler` and set `DICOM_PROFILE=1`:
+
+```bash
+pip install line_profiler
+DICOM_PROFILE=1 python main.py ./data --workers 0     # Windows PowerShell: $env:DICOM_PROFILE=1; python main.py ./data --workers 0
+```
+
+Each process writes its timings to its own `profiler_logs_<pid>.txt`. Running with `--workers 0` keeps everything in one file.
 
 ---
 

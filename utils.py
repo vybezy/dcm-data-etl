@@ -19,43 +19,59 @@ from azure.storage.blob import BlobServiceClient
 # ------------------------- Profiler -------------------------
 
 
+PROFILE_ENV_VAR = "DICOM_PROFILE"
+
+
+def profiling_enabled() -> bool:
+    """Profiling is opt-in: set DICOM_PROFILE=1 (or true/yes) to turn it on."""
+    return os.getenv(PROFILE_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
+
+
 def Profiler(func):
     """
-    Custom line-by-line profiler that logs execution time for every single line.
-    Automatically appends the receipt to a text file.
+    Opt-in line-by-line profiler (requires line_profiler).
+
+    Disabled by default: the decorator then returns the original function
+    unchanged, so production imports pay zero overhead. When DICOM_PROFILE=1,
+    each call appends its line timings to profiler_logs_<pid>.txt - one file
+    per process, so parallel workers never interleave their output.
     """
+    if not profiling_enabled():
+        return func
+
+    try:
+        from line_profiler import LineProfiler
+    except ImportError:
+        logger.warning(
+            "%s is set but line_profiler is not installed (pip install line_profiler); "
+            "%s will run without profiling.", PROFILE_ENV_VAR, func.__name__
+        )
+        return func
+
     @wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            from line_profiler import LineProfiler
-        except ImportError:
-            print("⚠️ line_profiler is missing! Please run: pip install line_profiler")
-            return func(*args, **kwargs)
-
         lp = LineProfiler()
         lp.add_function(func)
-        
+
         lp.enable()
-        result = func(*args, **kwargs)
-        lp.disable()
-        
-        # get the info as a text
-        s = io.StringIO()
-        lp.print_stats(stream=s)
-        
-        # save to log file
-        log_file = "profiler_logs.txt"
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"\n{'='*80}\n")
-            f.write(f"📅 DATE:     {current_time}\n")
-            f.write(f"⚙️ FUNCTION: {func.__name__}\n")
-            f.write(f"{'='*80}\n")
-            f.write(s.getvalue())
-            f.write("\n")
-            
-        return result
+        try:
+            return func(*args, **kwargs)
+        finally:
+            # runs even if func raises, so failed calls are profiled too
+            lp.disable()
+            s = io.StringIO()
+            lp.print_stats(stream=s)
+
+            log_file = f"profiler_logs_{os.getpid()}.txt"
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"\n{'=' * 80}\n")
+                f.write(f"DATE:     {current_time}\n")
+                f.write(f"FUNCTION: {func.__name__}\n")
+                f.write(f"{'=' * 80}\n")
+                f.write(s.getvalue())
+                f.write("\n")
+
     return wrapper
 
 
