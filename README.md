@@ -18,6 +18,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
 - [How a file is processed](#how-a-file-is-processed)
+- [Performance](#performance)
 - [Testing and CI](#testing-and-ci)
 - [Project structure](#project-structure)
 - [Design decisions](#design-decisions)
@@ -30,7 +31,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 
 | Area | What it does |
 |---|---|
-| **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. |
+| **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. 4 workers import about 4× faster than sequential ([benchmark](#performance)). |
 | **Relational modelling** | Patient → Study → Series → Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
 | **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
@@ -280,6 +281,37 @@ Each step logs to the console and, when a session exists, to `dicom_logger`.
 
 ---
 
+## Performance
+
+Measured with [`benchmark.py`](benchmark.py): the 78 CT slices of the full sample series (about 40 MB) are imported from an empty database for each worker count, and each value is the median of 3 runs.
+
+Environment: Docker Desktop on Windows, 12 logical CPU cores visible to the container, Python 3.11, PostgreSQL 15 in a second container.
+
+| Workers | Time (s) | Files/sec | Speed-up |
+|---|---|---|---|
+| 0 (sequential) | 5.47 | 14.3 | 1.00x |
+| 1 | 5.93 | 13.1 | 0.92x |
+| 2 | 2.40 | 32.5 | 2.28x |
+| 4 | 1.33 | 58.7 | 4.12x |
+| 8 | 1.49 | 52.5 | 3.68x |
+
+What the numbers show:
+
+- **Parallelism pays off up to 4 workers.** 4 workers import 4.1× faster than a sequential run (58.7 vs 14.3 files per second). A speed-up slightly above the worker count is possible because a sequential import spends much of its time waiting on the database (connecting and committing once per file); with several workers those waits overlap.
+- **1 worker is slower than sequential.** It does the same work plus the cost of starting a worker process and sending each task to it.
+- **8 workers are slower than 4**, even with 12 cores available. The bottleneck moves from Python to the database. All 78 slices belong to the same patient, study and series, so every file's transaction upserts the same three rows, and PostgreSQL keeps a row updated by `INSERT ... ON CONFLICT DO UPDATE` locked until that transaction commits. Concurrent workers therefore queue on those rows, and all of them share one database and its commit log.
+- **Small batch, some noise.** With 78 files, fixed costs such as starting processes are a noticeable share of the total, and single runs varied by up to about a second, which is why medians are reported.
+
+To reproduce (this resets the pipeline tables before every run):
+
+```bash
+docker compose run --rm etl_pipeline python benchmark.py
+```
+
+Ideas for scaling further: reuse one database connection per worker instead of one per file, and batch several files per transaction. A dataset spread over many patients and series would also reduce the row-lock contention seen here.
+
+---
+
 ## Testing and CI
 
 ```bash
@@ -300,6 +332,7 @@ All suites live in [`tests/`](tests/):
 | `test_logger.py` | Plain-text labels, Unicode-safe console output, UTF-8 log file | No |
 | `test_profiler.py` | Profiler is off by default and falls back cleanly without `line_profiler` | No |
 | `test_azure.py` | Azure Blob download: skipped without a connection string, failures logged, existing files kept | No (mocked) |
+| `test_benchmark.py` | Benchmark maths (median, files/sec, speed-up), `.dcm` counting, stopping on a failed import | No (mocked) |
 | `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import | Yes |
 
 ### Running the integration tests locally
@@ -338,6 +371,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── config.py                  # database credentials from .env and DEFAULT_SETTINGS
 ├── logger.py                  # console and file logging, pretty_log
 ├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
+├── benchmark.py               # import speed for different worker counts
 ├── .env.example               # template for .env
 ├── .dockerignore              # keeps .env and data out of the Docker image
 ├── Dockerfile                 # multi-stage build, runs as non-root user
