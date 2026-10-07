@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Run the manager script when the container launches
-CMD ["python", "run_c3d_import.py"]
+CMD ["python", "main.py"]
