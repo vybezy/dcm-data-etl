@@ -11,6 +11,8 @@ from extractor import (
     extract_and_upsert_patient,
     extract_and_upsert_study,
     extract_and_insert_headers,
+    parse_dicom_date,
+    parse_dicom_time,
 )
 
 
@@ -167,3 +169,60 @@ def test_upsert_study_formats_date_and_time():
     assert params[1] == "1.2.840.1"
     assert params[2] == "2024-01-15"
     assert params[3] == "13:45:02"
+
+# ------------------------- date / time parsing -------------------------
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("20240115", "2024-01-15"),
+    ("2024.01.15", "2024-01-15"),   # legacy ACR-NEMA format
+    (" 20240229 ", "2024-02-29"),   # leap day, padding stripped
+])
+def test_parse_dicom_date_valid(raw, expected):
+    assert parse_dicom_date(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [
+    None, "", "20241399", "20230229", "2024011", "abcdefgh",
+])
+def test_parse_dicom_date_invalid_returns_none(raw):
+    assert parse_dicom_date(raw) is None
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("134502", "13:45:02"),
+    ("134502.123456", "13:45:02"),  # fractional seconds dropped
+    ("1345", "13:45:00"),           # truncated forms allowed by DICOM
+    ("13", "13:00:00"),
+    ("13:45:02", "13:45:02"),       # legacy format
+])
+def test_parse_dicom_time_valid(raw, expected):
+    assert parse_dicom_time(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [None, "", "256000", "136100", "12345", "ab"])
+def test_parse_dicom_time_invalid_returns_none(raw):
+    assert parse_dicom_time(raw) is None
+
+
+def test_upsert_study_invalid_date_is_stored_as_null_not_fatal():
+    ds = Dataset()
+    ds.StudyInstanceUID = "1.2.840.1"
+    ds.StudyDate = "20241399"
+    ds.StudyTime = "256000"
+    conn, cur = make_mock_conn(fetchone_value=(5,))
+
+    assert extract_and_upsert_study(conn, ds, patient_id=3) == 5
+    params = cur.execute.call_args[0][1]
+    assert params[2] is None  # study_date
+    assert params[3] is None  # study_time
+
+
+def test_upsert_patient_invalid_birth_date_is_stored_as_null():
+    ds = Dataset()
+    ds.PatientID = "MRN1"
+    ds.PatientBirthDate = "19901340"
+    conn, cur = make_mock_conn(fetchone_value=(1,))
+
+    extract_and_upsert_patient(conn, ds, "abcdef1234567890")
+    assert cur.execute.call_args[0][1][2] is None
