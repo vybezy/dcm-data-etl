@@ -21,7 +21,7 @@ from azure.storage.blob import BlobServiceClient
 
 def Profiler(func):
     """
-    A custom line-by-line profiler that logs execution time for every single line.
+    Custom line-by-line profiler that logs execution time for every single line.
     Automatically appends the receipt to a text file.
     """
     @wraps(func)
@@ -73,7 +73,7 @@ class ImportOptions:
     dry_run: bool = False
     debug: bool = False
     log_to_db: bool = True
-    safe_c3d_folder: Optional[str] = None
+    safe_dicom_folder: Optional[str] = None
     session_id: Optional[int] = None
 
 class ImportErrorWithContext(Exception):
@@ -134,10 +134,10 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
 # ------------------------------ Azure ------------------------------
 
 
-def download_c3d_from_azure(download_dir: str = "/data") -> str:
+def download_dicom_from_azure(download_dir: str = "/data") -> str:
     """
     Connects to Azure Blob Storage using a SAS connection string and downloads
-    all .c3d files into the local container directory prior to processing.
+    all .dcm files into the local container directory prior to processing.
     """
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     if not connection_string:
@@ -147,7 +147,7 @@ def download_c3d_from_azure(download_dir: str = "/data") -> str:
     print("[INFO] Connecting to Azure Blob Storage...")
     try:
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        container_client = blob_service_client.get_container_client("raw-c3d-files")
+        container_client = blob_service_client.get_container_client("raw-dicom-files")
         
         os.makedirs(download_dir, exist_ok=True)
         downloaded = 0
