@@ -41,7 +41,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no redeploy is needed to tune them. |
 | **Cloud ingestion** | Optionally downloads `.dcm` files from Azure Blob Storage before processing. |
 | **Profiling** | Opt-in `@Profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
-| **Containerized** | Docker Compose runs PostgreSQL 15 with a health check, and the pipeline starts only once the database is ready. |
+| **Containerized** | Docker Compose runs PostgreSQL 15 with a health check, and the pipeline starts only once the database is ready. The pipeline image is a multi-stage build (no compiler in the final image) and runs as a non-root user. |
 
 ---
 
@@ -212,7 +212,7 @@ PostgreSQL is exposed on host port `5433`. Inside Compose, the pipeline override
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt       # runtime only; use requirements-dev.txt to also run the tests
 python main.py
 ```
 
@@ -236,10 +236,10 @@ The process exits with `0` when no file errored, `1` when at least one file erro
 
 ### Profiling
 
-Line-by-line profiling is off by default. To profile a run, install `line_profiler` and set `DICOM_PROFILE=1`:
+Line-by-line profiling is off by default. To profile a run, install the development dependencies (which include `line_profiler`) and set `DICOM_PROFILE=1`:
 
 ```bash
-pip install line_profiler
+pip install -r requirements-dev.txt
 DICOM_PROFILE=1 python main.py ./data --workers 0     # Windows PowerShell: $env:DICOM_PROFILE=1; python main.py ./data --workers 0
 ```
 
@@ -283,8 +283,11 @@ Each step logs to the console and, when a session exists, to `dicom_logger`.
 ## Testing and CI
 
 ```bash
+pip install -r requirements-dev.txt
 python -m pytest -v
 ```
+
+Dependencies are split in two pinned files: `requirements.txt` holds only what the pipeline needs to run (and is all the Docker image installs), and `requirements-dev.txt` adds the test and profiling tools on top of it.
 
 All suites live in [`tests/`](tests/):
 
@@ -315,7 +318,7 @@ python -m pytest -v
 
 ### Continuous integration
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a PostgreSQL 15 service container, installs the dependencies from `requirements.txt` and runs the full suite, including the integration tests.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a PostgreSQL 15 service container, installs the dependencies from `requirements-dev.txt` and runs the full suite, including the integration tests.
 
 ---
 
@@ -337,9 +340,10 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
 ├── .env.example               # template for .env
 ├── .dockerignore              # keeps .env and data out of the Docker image
-├── Dockerfile
+├── Dockerfile                 # multi-stage build, runs as non-root user
 ├── docker-compose.yml
-└── requirements.txt
+├── requirements.txt           # pinned runtime dependencies (installed in the Docker image)
+└── requirements-dev.txt       # runtime dependencies + pytest and line_profiler
 ```
 
 ---

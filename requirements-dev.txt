@@ -1,0 +1,6 @@
+# Development dependencies: everything in requirements.txt plus test and profiling tools.
+# Used by CI and for local development:  pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest==9.1.1
+line-profiler==5.0.2
