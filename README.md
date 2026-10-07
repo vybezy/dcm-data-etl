@@ -249,8 +249,6 @@ Import behaviour is tunable at runtime through the `dicom_settings` table:
 | `max_file_size` | 99 MB | Larger files are rejected |
 | `max_file_age_months` | 1200 | Scans older than this are rejected, judged by the DICOM `StudyDate` (falling back to `SeriesDate`, `AcquisitionDate`, `ContentDate`), not by the file's timestamp on disk |
 | `workers` | 4 | Parallel worker processes (`0` = sequential) |
-| `subject_min_length` | 2 | Minimum subject length |
-| `safe_dicom_folder` | empty | Reserved for a safe-folder path |
 
 The defaults are defined once, in `DEFAULT_SETTINGS` in `config.py`. They are written to the table on first run and never overwrite a value you have changed.
 

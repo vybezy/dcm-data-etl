@@ -18,12 +18,17 @@ from extractor import process_dicom_file, parse_dicom_date
 
 
 # checks if file name is valid
+# Letters and digits of any alphabet (\w is Unicode-aware in Python 3), plus _ - . and space.
+# Path separators and shell/special characters such as / \ : ; @ $ are rejected.
+_FILENAME_PATTERN = re.compile(r"[\w\-. ]+")
+
+
 def is_valid_filename(filename: str) -> bool:
-    # max length 255, only allow alphanum, dash, underscore, dot, space
+    """Max 255 characters, made only of the characters in _FILENAME_PATTERN."""
     if len(filename) > 255:
         return False
-    # doesn't allow unusual characters (allows: Greek, Latin, numbers, dash, underscore, dot, space)
-    return re.match(r"^[\w\-. \u0370-\u03FF]+$", filename) is not None
+    # fullmatch, not match(...$): '$' would also accept a trailing newline
+    return _FILENAME_PATTERN.fullmatch(filename) is not None
 
 def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
     base_abs = os.path.abspath(base_folder)

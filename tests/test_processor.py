@@ -29,7 +29,6 @@ def make_options(base_folder, **overrides):
         base_folder=os.path.realpath(str(base_folder)),
         min_size=1,
         max_size=10 * 1024 * 1024,
-        subject_min_length=3,
         max_file_age_months=24,
         workers=0,
         session_id=None,
@@ -83,7 +82,9 @@ def run_process_file(path, options):
     "Trial01.dcm",
     "subject_test-01.dcm",
     "my file.dcm",
-    "Ασθενής01.dcm",  # Greek characters are allowed
+    "Ασθενής01.dcm",  # any alphabet is allowed: Greek,
+    "Пациент01.dcm",  # Cyrillic,
+    "患者01.dcm",      # Chinese
 ])
 def test_valid_filenames(name):
     assert is_valid_filename(name) is True
@@ -95,6 +96,9 @@ def test_valid_filenames(name):
     "folder/file.dcm",
     "file;rm -rf.dcm",
     "",
+    "scan.dcm\n",         # trailing newline ('$' would have accepted it)
+    "back\\slash.dcm",
+    "C:file.dcm",
 ])
 def test_invalid_filenames(name):
     assert is_valid_filename(name) is False
@@ -442,3 +446,10 @@ def test_unique_violation_is_logged_as_duplicate_never_error(tmp_path, mock_db):
     levels = [c.args[3] for c in log_event.call_args_list]
     assert levels == ["DUPLICATE"]
     assert "ERROR" not in [c.args[0] for c in pretty.call_args_list]
+
+
+def test_import_options_rejects_removed_fields():
+    """subject_min_length, safe_dicom_folder, debug and log_to_db were never used and are gone."""
+    for removed in ("subject_min_length", "safe_dicom_folder", "debug", "log_to_db"):
+        with pytest.raises(TypeError):
+            make_options(".", **{removed: 1})
