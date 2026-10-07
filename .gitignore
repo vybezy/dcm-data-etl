@@ -1,9 +1,8 @@
 .env
 __pycache__/
 *.log
-*.txt
+profiler_logs*.txt
 *.dcm
-!requirements.txt
 .venv/
 venv/
 .pytest_cache/
