@@ -1,9 +1,10 @@
 # ---------- Build stage: compile dependencies that need a C compiler ----------
 FROM python:3.11-slim-bookworm AS builder
 
-# gcc and the PostgreSQL headers are only needed to compile psycopg2
+# gcc, the C library headers (libc6-dev) and the PostgreSQL headers are only
+# needed to compile psycopg2; none of them end up in the runtime image
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libpq-dev \
+    && apt-get install -y --no-install-recommends gcc libc6-dev libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
