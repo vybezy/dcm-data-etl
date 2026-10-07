@@ -139,15 +139,18 @@ def process_file(path: str, options_dict: dict):
             conn.rollback()
             reason = f"Duplicate detected during hierarchical insert"
             pretty_log("DUPLICATE", f"Duplicate file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "DUPLICATE", reason)
+            log_db_event(conn, options, path, "DUPLICATE", reason, exc=e)
             result.update(status="duplicate", message="Duplicate detected during insert")
             return result
         
         except Exception as e:
             conn.rollback()
-            reason = f"Extraction/Insert error: {e}"
+            reason = f"Extraction/Insert error: {type(e).__name__}: {e}"
             pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
+            # full traceback: hidden from normal console output (DEBUG level),
+            # but always stored in dicom_logger.log_stack_trace via exc=e
+            logger.debug("Traceback for %s", filename, exc_info=True)
+            log_db_event(conn, options, path, "ERROR", reason, exc=e)
             result.update(status="error", message=reason)
             return result
             

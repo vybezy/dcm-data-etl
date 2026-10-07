@@ -95,3 +95,16 @@ def test_handle_exception_closes_its_db_connection(no_config):
 
     log_event.assert_called_once()
     conn.close.assert_called_once()
+
+
+def test_log_db_event_survives_unknown_caller_module():
+    conn, cur = make_conn()
+    options = ImportOptions(
+        base_folder=".", min_size=1, max_size=10, subject_min_length=2,
+        max_file_age_months=1, workers=0, session_id=5,
+    )
+    with patch("database.inspect.getmodule", return_value=None):
+        database.log_db_event(conn, options, "a.dcm", "INFO", "msg")
+
+    params = cur.execute.call_args[0][1]
+    assert params[5] == "unknown"  # log_module
