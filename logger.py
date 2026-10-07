@@ -6,10 +6,10 @@ import logging
 
 
 # sets up logger
-logger = logging.getLogger("c3d_importer")
+logger = logging.getLogger("dicom_importer")
 logger.setLevel(logging.DEBUG)
 
-file_handler = logging.FileHandler("c3d_importer_critical.log")
+file_handler = logging.FileHandler("dicom_importer_critical.log")
 file_handler.setLevel(logging.CRITICAL)
 file_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 file_handler.setFormatter(file_formatter)
