@@ -1,7 +1,7 @@
 import os
 import re
 import hashlib
-import ezc3d
+import pydicom
 from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -10,7 +10,7 @@ import psycopg2
 from utils import ImportOptions, ImportErrorWithContext, handle_exception, Profiler
 from logger import pretty_log, logger
 from database import log_db_event
-from extractor import process_c3d_metadata
+from extractor import process_dicom_file
 
 
 # ------------------------- File Processing -------------------------
@@ -47,13 +47,14 @@ def compute_sha256(path: str) -> str:
 def process_file(path: str, options_dict: dict):
     options = ImportOptions(**options_dict)
     result = {"path": path, "status": "error", "message": "Initial", "db_file_id": None, "metadata": None}
+    
     try:
         params = config()
         conn = psycopg2.connect(**params)
         if not conn:
             result.update(status="error", message="Database connection failed")
             return result
-        # path traversal and filename checks
+            
         try:
             abs_path = sanitize_and_validate_path(path, options.base_folder)
         except Exception as e:
@@ -64,8 +65,10 @@ def process_file(path: str, options_dict: dict):
             return result
 
         filename = os.path.basename(abs_path)
-        if not filename.lower().endswith(".c3d"):
-            reason = "Not a .c3d file"
+        
+        # Medical Standard: Check for .dcm
+        if not filename.lower().endswith(".dcm"):
+            reason = "Not a .dcm file"
             pretty_log("SKIP", f"Skipped file", file=filename, extra=reason)
             log_db_event(conn, options, path, "SKIP", reason)
             result.update(status="skipped", message=reason)
@@ -93,6 +96,7 @@ def process_file(path: str, options_dict: dict):
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="invalid", message=reason)
             return result
+            
         if file_date > datetime.now(timezone.utc) + timedelta(days=30):
             reason = f"File date in future: {file_date}"
             pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
@@ -100,57 +104,11 @@ def process_file(path: str, options_dict: dict):
             result.update(status="invalid", message=reason)
             return result
 
-        # subject name extraction (robust, with fallback to filename)
-        try:
-            c3d = ezc3d.c3d(abs_path)
-        except Exception as e:
-            reason = f"Could not open C3D file: {e}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
-
-        subject_name = ""
-        try:
-            subject_labels = c3d['parameters']['SUBJECTS']['LABELS']['value']
-            if subject_labels and isinstance(subject_labels, list) and subject_labels[0]:
-                subject_name = str(subject_labels[0])
-        except Exception:
-            pass
-        if not subject_name:
-            try:
-                subject_name = c3d['parameters']['SUBJECT']['NAME']['value']
-            except Exception:
-                pass
-        if not subject_name:
-            try:
-                subject_name = c3d['parameters']['SUBJECTS']['NAME']['value']
-            except Exception:
-                pass
-        if not subject_name:
-            try:
-                subject_name = c3d['parameters']['SUBJECTS']['LABEL']['value']
-            except Exception:
-                pass
-        if not subject_name:
-            base = os.path.basename(abs_path)
-            subject_name = base[:-4] if base.lower().endswith('.c3d') else base
-        subject_name = subject_name.strip()
-
-        if not isinstance(subject_name, str):
-            subject_name = str(subject_name)
-        if len(subject_name) < options.subject_min_length:
-            reason = f"Subject name '{subject_name}' too short (min {options.subject_min_length})"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
-
         sha = compute_sha256(abs_path)
 
-         # duplicate check (SHA256)
+        # Duplicate check against the corrected dicom_files table
         with conn.cursor() as cur:
-            cur.execute("SELECT file_id FROM c3d_files WHERE file_sha256_hash = %s", (sha,))
+            cur.execute("SELECT file_id FROM dicom_instances WHERE file_sha256_hash = %s", (sha,))
             row = cur.fetchone()
             if row:
                 reason = f"Duplicate file (SHA256={sha})"
@@ -159,34 +117,25 @@ def process_file(path: str, options_dict: dict):
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
 
-        # insert file metadata (if not dry run)
         if options.dry_run:
             pretty_log("DRYRUN", f"Dry run - not inserted", file=filename)
             log_db_event(conn, options, path, "DRYRUN", "Dry run - not inserted")
             result.update(status="dry_run", message="Dry run - not inserted")
             return result
 
+        # Delegate parsing and hierarchical database insertion to extractor.py
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO c3d_files (file_name, file_path, file_date, file_size, file_sha256_hash, file_subject_name)
-                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING file_id;
-                """, (
-                    filename, abs_path, file_date, st.st_size, sha, subject_name
-                ))
-                file_id = cur.fetchone()[0]
-                conn.commit()
+            file_id = process_dicom_file(conn, abs_path, filename, sha, st.st_size)
+            conn.commit()
 
-                process_c3d_metadata(file_id, abs_path)
-
-                pretty_log("SUCCESS", f"Successfully imported {filename} (ID: {file_id})", file=filename)
-                log_db_event(conn, options, path, "SUCCESS", f"Imported file (ID={file_id})")
-                result.update(status="inserted", message="Successfully imported", db_file_id=file_id)
-                return result
+            pretty_log("SUCCESS", f"Successfully imported {filename} (ID: {file_id})", file=filename)
+            log_db_event(conn, options, path, "SUCCESS", f"Imported file (ID={file_id})")
+            result.update(status="inserted", message="Successfully imported", db_file_id=file_id)
+            return result
             
-        except psycopg2.errors.UniqueViolation:
+        except psycopg2.errors.UniqueViolation as e:
             conn.rollback()
-            reason = f"Duplicate detected during insert (SHA256={sha})"
+            reason = f"Duplicate detected during hierarchical insert"
             pretty_log("DUPLICATE", f"Duplicate file", file=filename, extra=reason)
             log_db_event(conn, options, path, "DUPLICATE", reason)
             result.update(status="duplicate", message="Duplicate detected during insert")
@@ -194,7 +143,7 @@ def process_file(path: str, options_dict: dict):
         
         except Exception as e:
             conn.rollback()
-            reason = f"Insert error: {e}"
+            reason = f"Extraction/Insert error: {e}"
             pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="error", message=reason)
@@ -219,7 +168,7 @@ def scan_and_import(folder: str, options: ImportOptions):
     
     # grabs every file so process_file() can demonstrate the skip logic
     file_list = [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
-    logger.info("Found %d C3D files", len(file_list))
+    logger.info("Found %d DCM files", len(file_list))
 
     options_dict = asdict(options)  # convert dataclass to dict
 
