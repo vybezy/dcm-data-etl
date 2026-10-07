@@ -32,7 +32,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 |---|---|
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. |
 | **Relational modelling** | Patient → Study → Series Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
-| **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Bulk inserts use `execute_values`. |
+| **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
 | **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
 | **Duplicate prevention** | SHA-256 content hashing, and unique constraints on DICOM UIDs. |
@@ -139,10 +139,16 @@ JOIN dicom_studies st ON st.patient_id = p.patient_id
 JOIN dicom_series  s  ON s.study_id = st.study_id
 WHERE p.medical_record_number = 'MRN001' AND s.modality = 'CT';
 
--- Search the full header as JSONB (tag 0008,0060 = Modality)
+-- Search the full header as JSONB (tag 00080060 = Modality)
 SELECT file_name
 FROM dicom_instances
 WHERE metadata_json -> '00080060' ->> 'value' = 'CT';
+
+-- The same tag in the per-tag table (both use the same tag keys)
+SELECT i.file_name, h.header_value
+FROM dicom_header h
+JOIN dicom_instances i ON i.file_id = h.header_file_id
+WHERE h.header_tag = '00080060';
 
 -- Import errors for the latest session
 SELECT log_timestamp, log_level, log_dicomfile, log_message
