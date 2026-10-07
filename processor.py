@@ -1,3 +1,6 @@
+"""
+validates each file, checks for duplicates and runs the import, in parallel or one by one.
+"""
 import os
 import re
 import hashlib
@@ -17,20 +20,23 @@ from extractor import process_dicom_file, parse_dicom_date
 # ------------------------- File Processing -------------------------
 
 
-# checks if file name is valid
-# Letters and digits of any alphabet (\w is Unicode-aware in Python 3), plus _ - . and space.
-# Path separators and shell/special characters such as / \ : ; @ $ are rejected.
+# allowed filename characters: letters and digits of any alphabet (\w is Unicode-aware in Python 3), plus _ - . and space.
+# path separators and shell/special characters such as / \ : ; @ $ are rejected.
 _FILENAME_PATTERN = re.compile(r"[\w\-. ]+")
 
 
 def is_valid_filename(filename: str) -> bool:
-    """Max 255 characters, made only of the characters in _FILENAME_PATTERN."""
+    """max 255 characters, made only of the characters in _FILENAME_PATTERN."""
     if len(filename) > 255:
         return False
     # fullmatch, not match(...$): '$' would also accept a trailing newline
     return _FILENAME_PATTERN.fullmatch(filename) is not None
 
 def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
+    """
+    resolves the real path (following .. and symlinks) and makes sure it is still
+    inside base_folder. returns the real path or raises if it escapes.
+    """
     base_abs = os.path.abspath(base_folder)
     candidate_real = os.path.realpath(candidate)
     if not os.path.exists(candidate_real):
@@ -50,12 +56,12 @@ SCAN_DATE_TAGS = ("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate")
 
 
 def read_dicom_header(path: str):
-    """Reads the DICOM header only (pixel data is skipped). Raises if the file is not valid DICOM."""
+    """reads the DICOM header only (pixel data is skipped). Raises if the file is not valid DICOM."""
     return pydicom.dcmread(path, stop_before_pixels=True)
 
 
 def subtract_months(day: date, months: int) -> date:
-    """Calendar-correct 'N months before day' (Mar 31 minus 1 month -> Feb 28/29)."""
+    """calendar-correct 'N months before day' (Mar 31 minus 1 month -> Feb 28/29)."""
     total = day.year * 12 + (day.month - 1) - months
     year, month = divmod(total, 12)
     month += 1
@@ -65,7 +71,7 @@ def subtract_months(day: date, months: int) -> date:
 
 def get_scan_date(dataset):
     """
-    Returns (date, tag_name) for the first valid scan date in SCAN_DATE_TAGS,
+    returns (date, tag_name) for the first valid scan date in SCAN_DATE_TAGS,
     or (None, None) if the file has none.
     """
     for tag in SCAN_DATE_TAGS:
@@ -77,7 +83,7 @@ def get_scan_date(dataset):
 
 def check_scan_age(dataset, max_age_months: int, today: date = None):
     """
-    Validates the scan's own date (not the file's timestamp on disk).
+    validates the scan's own date (not the file's timestamp on disk).
     Returns None if the scan is acceptable, otherwise the rejection reason.
     Files with no scan date are accepted, because there is nothing to judge.
     """
@@ -94,13 +100,18 @@ def check_scan_age(dataset, max_age_months: int, today: date = None):
 
 
 def compute_sha256(path: str) -> str:
+    """sha-256 of the file contents, used to detect files that were already imported."""
     with open(path, "rb") as f:
         data = f.read()
     return hashlib.sha256(data).hexdigest()
 
-# main file processing
 @Profiler
 def process_file(path: str, options_dict: dict):
+    """
+    runs every check on one file and imports it. runs inside a worker process.
+    returns a result dict whose status is one of:
+    inserted, duplicate, invalid, skipped, dry_run or error.
+    """
     options = ImportOptions(**options_dict)
     result = {"path": path, "status": "error", "message": "Initial", "db_file_id": None, "metadata": None}
 
@@ -124,7 +135,7 @@ def process_file(path: str, options_dict: dict):
 
         filename = os.path.basename(abs_path)
 
-        # Medical Standard: Check for .dcm
+        # this pipeline only imports files with the .dcm extension
         if not filename.lower().endswith(".dcm"):
             reason = "Not a .dcm file"
             pretty_log("SKIP", "Skipped file", file=filename, extra=reason)
@@ -149,7 +160,7 @@ def process_file(path: str, options_dict: dict):
 
         sha = compute_sha256(abs_path)
 
-        # Duplicate check: has a file with identical content been imported before?
+        # duplicate check: has a file with identical content been imported before?
         with conn.cursor() as cur:
             cur.execute("SELECT file_id FROM dicom_instances WHERE file_sha256_hash = %s", (sha,))
             row = cur.fetchone()
@@ -160,7 +171,7 @@ def process_file(path: str, options_dict: dict):
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
 
-        # Read the header once: used for the scan-date check and then for extraction
+        # read the header once: used for the scan-date check and then for extraction
         try:
             dataset = read_dicom_header(abs_path)
         except Exception as e:
@@ -186,7 +197,7 @@ def process_file(path: str, options_dict: dict):
             result.update(status="dry_run", message="Dry run - not inserted")
             return result
 
-        # Delegate parsing and hierarchical database insertion to extractor.py
+        # delegate parsing and hierarchical database insertion to extractor.py
         try:
             file_id = process_dicom_file(conn, dataset, abs_path, filename, sha, st.st_size)
             conn.commit()
@@ -219,7 +230,7 @@ def process_file(path: str, options_dict: dict):
         reason = f"Exception: {e}"
         pretty_log("CRITICAL", "Critical error in worker", file=path, extra=reason)
 
-        # Log to the DB on a fresh connection (the original one may be broken or
+        # log to the DB on a fresh connection (the original one may be broken or
         # may never have opened). If that also fails, the console log above is
         # enough - never let the logging attempt hide the original error.
         if params is not None:
@@ -240,19 +251,17 @@ def process_file(path: str, options_dict: dict):
         if conn is not None:
             conn.close()
 
-# file import process
-
 def scan_and_import(folder: str, options: ImportOptions, file_list: list = None):
     """
-    Imports every file under `folder`, or only the files in `file_list` if given.
+    imports every file under `folder`, or only the files in `file_list` if given.
     Returns one result dict per file.
     """
     if file_list is None:
-        # grabs every file so process_file() can demonstrate the skip logic
+        # take every file, not only .dcm, so non-dicom files are reported as skipped
         file_list = [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
     logger.info("Found %d file(s) to process", len(file_list))
 
-    options_dict = asdict(options)  # convert dataclass to dict
+    options_dict = asdict(options)  # plain dict so it can be sent to worker processes
 
     results = []
 

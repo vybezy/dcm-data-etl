@@ -1,3 +1,6 @@
+"""
+logging setup: console output, a critical log file and pretty_log() for pipeline events.
+"""
 import sys
 import logging
 
@@ -6,7 +9,7 @@ import logging
 
 
 class _DefaultLabel(logging.Filter):
-    """Gives every record a 'label' (pretty_log sets SUCCESS, DUPLICATE, ...; others use the level name)."""
+    """gives every record a 'label' (pretty_log sets SUCCESS, DUPLICATE, ...; others use the level name)."""
     def filter(self, record):
         if not hasattr(record, "label"):
             record.label = record.levelname
@@ -15,7 +18,7 @@ class _DefaultLabel(logging.Filter):
 
 class SafeStreamHandler(logging.StreamHandler):
     """
-    Console handler that never crashes on characters the console can't encode.
+    console handler that never crashes on characters the console can't encode.
     On Windows, redirected output uses cp1252, which can't represent e.g. Greek
     filenames; such characters are replaced with '?' instead of raising
     UnicodeEncodeError inside the logging call.
@@ -33,7 +36,7 @@ class SafeStreamHandler(logging.StreamHandler):
             self.handleError(record)
 
 
-# sets up logger
+# main pipeline logger (console shows INFO and above)
 logger = logging.getLogger("dicom_importer")
 logger.setLevel(logging.DEBUG)
 logger.addFilter(_DefaultLabel())
@@ -67,7 +70,7 @@ _LEVELS = {
 
 def pretty_log(level, msg, file=None, extra=None):
     """
-    Logs one pipeline event as plain text, e.g.
+    logs one pipeline event as plain text, e.g.
         [SUCCESS] Successfully imported scan1.dcm (ID: 1) [scan1.dcm]
     """
     file_part = f" [{file}]" if file else ""
