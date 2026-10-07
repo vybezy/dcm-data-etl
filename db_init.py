@@ -44,9 +44,9 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         cur.execute("DROP TABLE IF EXISTS dicom_studies CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_patients CASCADE;")
 
-    
+
     # Logger Session
-   
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger_session (
             logses_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -54,23 +54,23 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             logses_userid TEXT DEFAULT current_user,
             logses_machineid TEXT
         );
-        
+
         COMMENT ON COLUMN dicom_logger_session.logses_id IS 'Primary key for the logging session batch.';
         COMMENT ON COLUMN dicom_logger_session.logses_timestamp IS 'Exact UTC timestamp when the batch import initiated.';
         COMMENT ON COLUMN dicom_logger_session.logses_userid IS 'Database user who initiated the import session.';
         COMMENT ON COLUMN dicom_logger_session.logses_machineid IS 'Network identity/hostname of the machine running the import script.';
     """)
 
-    
+
     # Logger
-  
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger (
             log_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             log_logses_id INTEGER NOT NULL REFERENCES dicom_logger_session(logses_id) ON DELETE CASCADE,
             log_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
             log_level VARCHAR(10) NOT NULL,
-            log_dicomfile VARCHAR(100) NOT NULL, 
+            log_dicomfile VARCHAR(100) NOT NULL,
             log_message TEXT NOT NULL,
             log_module VARCHAR(100) NOT NULL,
             log_function VARCHAR(100) NOT NULL,
@@ -80,7 +80,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             log_exception_type VARCHAR(200),
             log_stack_trace TEXT
         );
-        
+
         COMMENT ON COLUMN dicom_logger.log_id IS 'Primary key for the individual log event.';
         COMMENT ON COLUMN dicom_logger.log_logses_id IS 'Foreign key tying this log to a specific import batch session.';
         COMMENT ON COLUMN dicom_logger.log_timestamp IS 'Exact timestamp of the logged event.';
@@ -96,7 +96,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_logger.log_stack_trace IS 'Full traceback for post-mortem debugging.';
     """)
 
-    
+
     # Settings
 
     cur.execute("""
@@ -104,7 +104,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-        
+
         COMMENT ON COLUMN dicom_settings.key IS 'Configuration parameter name (e.g., max_file_size).';
         COMMENT ON COLUMN dicom_settings.value IS 'Configuration parameter value stored as text for flexible casting.';
     """)
@@ -149,9 +149,9 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
                 REFERENCES dicom_patients(patient_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS idx_studies_patient_id 
+        CREATE INDEX IF NOT EXISTS idx_studies_patient_id
             ON dicom_studies(patient_id);
-            
+
 
         COMMENT ON TABLE dicom_studies IS 'Clinical study or exam visit containing one or more imaging series.';
         COMMENT ON COLUMN dicom_studies.study_id IS 'Surrogate primary key for internal referencing.';
@@ -186,10 +186,10 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
                 REFERENCES dicom_studies(study_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS idx_series_study_id 
+        CREATE INDEX IF NOT EXISTS idx_series_study_id
             ON dicom_series(study_id);
-            
-        CREATE INDEX IF NOT EXISTS idx_series_modality 
+
+        CREATE INDEX IF NOT EXISTS idx_series_modality
             ON dicom_series(modality);
 
         COMMENT ON TABLE dicom_series IS 'Specific imaging run or protocol within a clinical study.';
@@ -211,7 +211,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     # Instances
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS dicom_instances ( 
+        CREATE TABLE IF NOT EXISTS dicom_instances (
             file_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             series_id INTEGER NOT NULL,
             sop_instance_uid VARCHAR(128) UNIQUE NOT NULL,
@@ -229,7 +229,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             CONSTRAINT fk_dicom_instances_series FOREIGN KEY(series_id)
                 REFERENCES dicom_series(series_id) ON DELETE CASCADE
         );
-        
+
         CREATE INDEX IF NOT EXISTS idx_instances_series_id ON dicom_instances(series_id);
         CREATE INDEX IF NOT EXISTS idx_instances_metadata_gin ON dicom_instances USING GIN (metadata_json);
 
@@ -247,12 +247,12 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_instances.columns IS 'Matrix column count (e.g., 512) from Tag (0028,0011).';
         COMMENT ON COLUMN dicom_instances.metadata_json IS 'Complete DICOM header (pixel data excluded) as JSONB keyed by tag, e.g. {"00080060": {"name": "Modality", "vr": "CS", "value": "CT"}}. Sequences are nested.';
         COMMENT ON COLUMN dicom_instances.created_at IS 'Timestamp of when the file was ingested into the database.';
-        
+
         COMMENT ON INDEX idx_instances_series_id IS 'B-Tree Index: Optimizes foreign key joins to group all slices for a specific scan.';
         COMMENT ON INDEX idx_instances_metadata_gin IS 'GIN Index: Enables lightning-fast searches deep inside the unstructured DICOM metadata payload.';
     """)
 
-    
+
     # Header (Tag Dictionary)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_header (
@@ -262,14 +262,14 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
             header_name TEXT NOT NULL,
             header_vr VARCHAR(4),
             header_value TEXT NOT NULL,
-            
+
             UNIQUE(header_file_id, header_tag),
-            
+
             CONSTRAINT fk_dicom_headers_file_id FOREIGN KEY(header_file_id)
                 REFERENCES dicom_instances(file_id) ON DELETE CASCADE
         );
-                
-        CREATE INDEX IF NOT EXISTS idx_dicom_headers_tag 
+
+        CREATE INDEX IF NOT EXISTS idx_dicom_headers_tag
             ON dicom_header(header_tag);
 
         COMMENT ON TABLE dicom_header IS 'Normalized key-value store for individual DICOM header tags per image instance.';
@@ -279,10 +279,10 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_header.header_name IS 'Standardized DICOM keyword/element name (e.g., Modality, PatientName, SliceThickness).';
         COMMENT ON COLUMN dicom_header.header_vr IS 'DICOM Value Representation code defining data type (e.g., CS=Code String, DS=Decimal String, UI=UID).';
         COMMENT ON COLUMN dicom_header.header_value IS 'Text value of the element (max 1000 characters). Sequences are stored as JSON, binary data as <binary: N bytes>.';
-        
+
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)
-    
+
 
     # Remove indexes created by earlier versions of this schema. Each one
     # duplicated an index PostgreSQL already builds for a UNIQUE constraint

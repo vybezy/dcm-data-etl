@@ -37,8 +37,10 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
         raise FileNotFoundError(f"Path does not exist: {candidate}")
     try:
         common = os.path.commonpath([base_abs, candidate_real])
-    except ValueError:
-        raise ImportErrorWithContext(f"Candidate path {candidate_real} is not on the same filesystem as base {base_abs}")
+    except ValueError as err:  # e.g. different drives on Windows
+        raise ImportErrorWithContext(
+            f"Candidate path {candidate_real} is not on the same filesystem as base {base_abs}"
+        ) from err
     if common != base_abs:
         raise ImportErrorWithContext(f"Path traversal or escape detected: {candidate_real} is not under {base_abs}")
     return candidate_real
@@ -115,24 +117,24 @@ def process_file(path: str, options_dict: dict):
             abs_path = sanitize_and_validate_path(path, options.base_folder)
         except Exception as e:
             reason = f"Path validation failed: {e}"
-            pretty_log("ERROR", f"Import failed for file", file=path, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=path, extra=reason)
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="invalid", message=reason)
             return result
 
         filename = os.path.basename(abs_path)
-        
+
         # Medical Standard: Check for .dcm
         if not filename.lower().endswith(".dcm"):
             reason = "Not a .dcm file"
-            pretty_log("SKIP", f"Skipped file", file=filename, extra=reason)
+            pretty_log("SKIP", "Skipped file", file=filename, extra=reason)
             log_db_event(conn, options, path, "SKIP", reason)
             result.update(status="skipped", message=reason)
             return result
-                
+
         if not is_valid_filename(filename):
             reason = f"Invalid filename: {filename}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="invalid", message=reason)
             return result
@@ -140,20 +142,20 @@ def process_file(path: str, options_dict: dict):
         st = os.stat(abs_path)
         if st.st_size < options.min_size or st.st_size > options.max_size:
             reason = f"File size ({st.st_size}) outside allowed range"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="invalid", message=reason)
             return result
 
         sha = compute_sha256(abs_path)
 
-        # Duplicate check against the corrected dicom_files table
+        # Duplicate check: has a file with identical content been imported before?
         with conn.cursor() as cur:
             cur.execute("SELECT file_id FROM dicom_instances WHERE file_sha256_hash = %s", (sha,))
             row = cur.fetchone()
             if row:
                 reason = f"Duplicate file (SHA256={sha})"
-                pretty_log("DUPLICATE", f"Duplicate file", file=filename, extra=reason)
+                pretty_log("DUPLICATE", "Duplicate file", file=filename, extra=reason)
                 log_db_event(conn, options, path, "DUPLICATE", reason)
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
@@ -163,7 +165,7 @@ def process_file(path: str, options_dict: dict):
             dataset = read_dicom_header(abs_path)
         except Exception as e:
             reason = f"Unreadable DICOM file: {type(e).__name__}: {e}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             logger.debug("Traceback for %s", filename, exc_info=True)
             log_db_event(conn, options, path, "ERROR", reason, exc=e)
             result.update(status="error", message=reason)
@@ -171,7 +173,7 @@ def process_file(path: str, options_dict: dict):
 
         reason = check_scan_age(dataset, options.max_file_age_months)
         if reason:
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             log_db_event(conn, options, path, "ERROR", reason)
             result.update(status="invalid", message=reason)
             return result
@@ -179,7 +181,7 @@ def process_file(path: str, options_dict: dict):
             logger.warning("No scan date in %s; age check skipped", filename)
 
         if options.dry_run:
-            pretty_log("DRYRUN", f"Dry run - not inserted", file=filename)
+            pretty_log("DRYRUN", "Dry run - not inserted", file=filename)
             log_db_event(conn, options, path, "DRYRUN", "Dry run - not inserted")
             result.update(status="dry_run", message="Dry run - not inserted")
             return result
@@ -193,29 +195,29 @@ def process_file(path: str, options_dict: dict):
             log_db_event(conn, options, path, "SUCCESS", f"Imported file (ID={file_id})")
             result.update(status="inserted", message="Successfully imported", db_file_id=file_id)
             return result
-            
+
         except psycopg2.errors.UniqueViolation as e:
             conn.rollback()
-            reason = f"Duplicate detected during hierarchical insert"
-            pretty_log("DUPLICATE", f"Duplicate file", file=filename, extra=reason)
+            reason = "Duplicate detected during hierarchical insert"
+            pretty_log("DUPLICATE", "Duplicate file", file=filename, extra=reason)
             log_db_event(conn, options, path, "DUPLICATE", reason, exc=e)
             result.update(status="duplicate", message="Duplicate detected during insert")
             return result
-        
+
         except Exception as e:
             conn.rollback()
             reason = f"Extraction/Insert error: {type(e).__name__}: {e}"
-            pretty_log("ERROR", f"Import failed for file", file=filename, extra=reason)
+            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             # full traceback: hidden from normal console output (DEBUG level),
             # but always stored in dicom_logger.log_stack_trace via exc=e
             logger.debug("Traceback for %s", filename, exc_info=True)
             log_db_event(conn, options, path, "ERROR", reason, exc=e)
             result.update(status="error", message=reason)
             return result
-            
+
     except Exception as e:
         reason = f"Exception: {e}"
-        pretty_log("CRITICAL", f"Critical error in worker", file=path, extra=reason)
+        pretty_log("CRITICAL", "Critical error in worker", file=path, extra=reason)
 
         # Log to the DB on a fresh connection (the original one may be broken or
         # may never have opened). If that also fails, the console log above is
@@ -254,16 +256,10 @@ def scan_and_import(folder: str, options: ImportOptions, file_list: list = None)
 
     results = []
 
-    def _append_result(res):
-        try:
-            results.append(res)
-        except Exception as e:
-            handle_exception(e, options, file_path=None, level="ERROR")
-
     # parallel execution using ProcessPoolExecutor
     if options.workers and options.workers > 0:
         logger.info("Running with %d workers (ProcessPoolExecutor)", options.workers)
-        
+
         with ProcessPoolExecutor(max_workers=options.workers) as executor:
             # submit all files to the pool at once
             future_to_file = {executor.submit(process_file, f, options_dict): f for f in file_list}
@@ -273,22 +269,22 @@ def scan_and_import(folder: str, options: ImportOptions, file_list: list = None)
                 file_path = future_to_file[future]
                 try:
                     res = future.result()
-                    _append_result(res)
+                    results.append(res)
                 except Exception as e:
                     handle_exception(e, options, file_path=file_path, level="CRITICAL")
                     # record the crash so it is counted in the summary and exit code
-                    _append_result({"path": file_path, "status": "error", "message": str(e)})
+                    results.append({"path": file_path, "status": "error", "message": str(e)})
 
-    # sequential fallback 
+    # sequential fallback
     else:
         logger.info("Running sequentially")
         for f in file_list:
             try:
                 res = process_file(f, options_dict)
-                _append_result(res)
+                results.append(res)
             except Exception as e:
                 handle_exception(e, options, file_path=f, level="CRITICAL")
-                _append_result({"path": f, "status": "error", "message": str(e)})
+                results.append({"path": f, "status": "error", "message": str(e)})
 
     # summarize results
     summary = {"inserted": 0, "duplicate": 0, "invalid": 0, "skipped": 0, "dry_run": 0, "error": 0}
