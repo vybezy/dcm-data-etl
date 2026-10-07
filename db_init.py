@@ -2,7 +2,7 @@ import logging
 from config import config
 import psycopg2
 
-def db_init(reset_tables: bool = False, logger: logging.Logger = None):
+def db_init(reset_tables: bool = True, logger: logging.Logger = None):
 
     params = config()
     conn = psycopg2.connect(**params)
@@ -11,47 +11,45 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
         logger = logging.getLogger(__name__)
 
     cur = conn.cursor()
-
-    cur.execute("DROP TABLE IF EXISTS c3d_files CASCADE;")
     
     if reset_tables:
         logger.info("Resetting database tables...")
-        cur.execute("DROP TABLE IF EXISTS c3d_logger CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_logger_session CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_settings CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_header CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_parameters CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_analog CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_points CASCADE;")
-        cur.execute("DROP TABLE IF EXISTS c3d_files CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_logger_session CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_settings CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_header CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_instances CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_series CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_studies CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_patients CASCADE;")
 
     
     # Logger Session
    
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_logger_session (
+        CREATE TABLE IF NOT EXISTS dicom_logger_session (
             logses_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             logses_timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
             logses_userid TEXT DEFAULT current_user,
             logses_machineid TEXT
         );
         
-        COMMENT ON COLUMN c3d_logger_session.logses_id IS 'Primary key for the logging session batch.';
-        COMMENT ON COLUMN c3d_logger_session.logses_timestamp IS 'Exact UTC timestamp when the batch import initiated.';
-        COMMENT ON COLUMN c3d_logger_session.logses_userid IS 'Database user who initiated the import session.';
-        COMMENT ON COLUMN c3d_logger_session.logses_machineid IS 'Network identity/hostname of the machine running the import script.';
+        COMMENT ON COLUMN dicom_logger_session.logses_id IS 'Primary key for the logging session batch.';
+        COMMENT ON COLUMN dicom_logger_session.logses_timestamp IS 'Exact UTC timestamp when the batch import initiated.';
+        COMMENT ON COLUMN dicom_logger_session.logses_userid IS 'Database user who initiated the import session.';
+        COMMENT ON COLUMN dicom_logger_session.logses_machineid IS 'Network identity/hostname of the machine running the import script.';
     """)
 
     
     # Logger
   
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_logger (
+        CREATE TABLE IF NOT EXISTS dicom_logger (
             log_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            log_logses_id INTEGER NOT NULL REFERENCES c3d_logger_session(logses_id) ON DELETE CASCADE,
+            log_logses_id INTEGER NOT NULL REFERENCES dicom_logger_session(logses_id) ON DELETE CASCADE,
             log_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
             log_level VARCHAR(10) NOT NULL,
-            log_c3dfile VARCHAR(100) NOT NULL, 
+            log_dicomfile VARCHAR(100) NOT NULL, 
             log_message TEXT NOT NULL,
             log_module VARCHAR(100) NOT NULL,
             log_function VARCHAR(100) NOT NULL,
@@ -62,243 +60,236 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
             log_stack_trace TEXT
         );
         
-        COMMENT ON COLUMN c3d_logger.log_id IS 'Primary key for the individual log event.';
-        COMMENT ON COLUMN c3d_logger.log_logses_id IS 'Foreign key tying this log to a specific import batch session.';
-        COMMENT ON COLUMN c3d_logger.log_timestamp IS 'Exact timestamp of the logged event.';
-        COMMENT ON COLUMN c3d_logger.log_level IS 'Severity level (e.g., INFO, ERROR, CRITICAL).';
-        COMMENT ON COLUMN c3d_logger.log_c3dfile IS 'The specific C3D file being processed during the event.';
-        COMMENT ON COLUMN c3d_logger.log_message IS 'Descriptive logging message or error summary.';
-        COMMENT ON COLUMN c3d_logger.log_module IS 'Python module where the event was triggered.';
-        COMMENT ON COLUMN c3d_logger.log_function IS 'Python function where the event was triggered.';
-        COMMENT ON COLUMN c3d_logger.log_line_number IS 'Code line number for debugging.';
-        COMMENT ON COLUMN c3d_logger.log_process_name IS 'Multiprocessing worker name.';
-        COMMENT ON COLUMN c3d_logger.log_thread_name IS 'Thread name executing the process.';
-        COMMENT ON COLUMN c3d_logger.log_exception_type IS 'Type of Python exception caught, if any.';
-        COMMENT ON COLUMN c3d_logger.log_stack_trace IS 'Full traceback for post-mortem debugging.';
+        COMMENT ON COLUMN dicom_logger.log_id IS 'Primary key for the individual log event.';
+        COMMENT ON COLUMN dicom_logger.log_logses_id IS 'Foreign key tying this log to a specific import batch session.';
+        COMMENT ON COLUMN dicom_logger.log_timestamp IS 'Exact timestamp of the logged event.';
+        COMMENT ON COLUMN dicom_logger.log_level IS 'Severity level (e.g., INFO, ERROR, CRITICAL).';
+        COMMENT ON COLUMN dicom_logger.log_dicomfile IS 'The specific DICOM file being processed during the event.';
+        COMMENT ON COLUMN dicom_logger.log_message IS 'Descriptive logging message or error summary.';
+        COMMENT ON COLUMN dicom_logger.log_module IS 'Python module where the event was triggered.';
+        COMMENT ON COLUMN dicom_logger.log_function IS 'Python function where the event was triggered.';
+        COMMENT ON COLUMN dicom_logger.log_line_number IS 'Code line number for debugging.';
+        COMMENT ON COLUMN dicom_logger.log_process_name IS 'Multiprocessing worker name.';
+        COMMENT ON COLUMN dicom_logger.log_thread_name IS 'Thread name executing the process.';
+        COMMENT ON COLUMN dicom_logger.log_exception_type IS 'Type of Python exception caught, if any.';
+        COMMENT ON COLUMN dicom_logger.log_stack_trace IS 'Full traceback for post-mortem debugging.';
     """)
 
     
     # Settings
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_settings (
+        CREATE TABLE IF NOT EXISTS dicom_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
         
-        COMMENT ON COLUMN c3d_settings.key IS 'Configuration parameter name (e.g., max_file_size).';
-        COMMENT ON COLUMN c3d_settings.value IS 'Configuration parameter value stored as text for flexible casting.';
+        COMMENT ON COLUMN dicom_settings.key IS 'Configuration parameter name (e.g., max_file_size).';
+        COMMENT ON COLUMN dicom_settings.value IS 'Configuration parameter value stored as text for flexible casting.';
     """)
 
-
-    # Files
+    # Patients
 
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_files ( 
-            file_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            file_name VARCHAR(255) NOT NULL,
-            file_path TEXT NOT NULL,
-            file_date TIMESTAMP WITH TIME ZONE NOT NULL,
-            file_size BIGINT NOT NULL,
-            file_sha256_hash VARCHAR(64) UNIQUE NOT NULL,
-            file_subject_name VARCHAR(255) NOT NULL,
+        CREATE TABLE IF NOT EXISTS dicom_patients (
+            patient_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            medical_record_number VARCHAR(64) UNIQUE NOT NULL,
+            patient_name VARCHAR(255) NOT NULL DEFAULT 'ANONYMOUS',
+            birth_date DATE,
+            sex VARCHAR(16),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE INDEX IF NOT EXISTS idx_patients_mrn 
+            ON dicom_patients (medical_record_number);
+
+        COMMENT ON TABLE dicom_patients IS 'Root entity of the DICOM hierarchy representing unique individuals.';
+        COMMENT ON COLUMN dicom_patients.patient_id IS 'Surrogate primary key for internal foreign key referencing.';
+        COMMENT ON COLUMN dicom_patients.medical_record_number IS 'Clinical patient identifier extracted from DICOM Tag (0010,0020). Guaranteed unique.';
+        COMMENT ON COLUMN dicom_patients.patient_name IS 'Extracted from DICOM Tag (0010,0010). Typically masked or anonymized in public research cohorts.';
+        COMMENT ON COLUMN dicom_patients.birth_date IS 'Extracted from DICOM Tag (0010,0030). Used for cohort age segmentation.';
+        COMMENT ON COLUMN dicom_patients.sex IS 'Extracted from DICOM Tag (0010,0040) (e.g., M, F, O).';
+        COMMENT ON COLUMN dicom_patients.created_at IS 'UTC timestamp recording when this patient profile was first ingested.';
+        COMMENT ON INDEX idx_patients_mrn IS 'B-Tree Index: Optimizes lookups and upsert checks by hospital Patient ID during batch ingestion.';
+    """)
+
+
+    # Studies (Clinical Examination / Hospital Appointment)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dicom_studies (
+            study_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            patient_id INTEGER NOT NULL,
+            study_instance_uid VARCHAR(128) UNIQUE NOT NULL,
+            study_date DATE,
+            study_time TIME,
+            accession_number VARCHAR(64),
+            study_description TEXT,
+            referring_physician VARCHAR(255),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT fk_dicom_studies_patient FOREIGN KEY(patient_id)
+                REFERENCES dicom_patients(patient_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_studies_patient_id 
+            ON dicom_studies(patient_id);
+            
+        CREATE INDEX IF NOT EXISTS idx_studies_uid 
+            ON dicom_studies(study_instance_uid);
+
+        COMMENT ON TABLE dicom_studies IS 'Clinical study or exam visit containing one or more imaging series.';
+        COMMENT ON COLUMN dicom_studies.study_id IS 'Surrogate primary key for internal referencing.';
+        COMMENT ON COLUMN dicom_studies.patient_id IS 'Foreign key linking this exam back to the master patient profile.';
+        COMMENT ON COLUMN dicom_studies.study_instance_uid IS 'Globally unique identifier extracted from DICOM Tag (0020,000D).';
+        COMMENT ON COLUMN dicom_studies.study_date IS 'Date the examination occurred, extracted from DICOM Tag (0080,0020).';
+        COMMENT ON COLUMN dicom_studies.study_time IS 'Time of acquisition, extracted from DICOM Tag (0080,0030).';
+        COMMENT ON COLUMN dicom_studies.accession_number IS 'Hospital billing/order identifier extracted from DICOM Tag (0008,0050).';
+        COMMENT ON COLUMN dicom_studies.study_description IS 'Clinical exam summary (e.g., CT CHEST WITHOUT CONTRAST) from Tag (0008,1030).';
+        COMMENT ON COLUMN dicom_studies.referring_physician IS 'Physician ordering the study from DICOM Tag (0008,0090).';
+        COMMENT ON COLUMN dicom_studies.created_at IS 'UTC timestamp recording when this study was ingested.';
+        COMMENT ON INDEX idx_studies_patient_id IS 'B-Tree Index: Optimizes joins to fetch all medical exams belonging to a single patient.';
+        COMMENT ON INDEX idx_studies_uid IS 'B-Tree Index: Fast lookups during batch ingestion to prevent duplicate study inserts.';
+    """)
+
+
+    # Series (Scanner Protocol / Acquisition Run)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dicom_series (
+            series_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            study_id INTEGER NOT NULL,
+            series_instance_uid VARCHAR(128) UNIQUE NOT NULL,
+            series_number INTEGER,
+            modality VARCHAR(16) NOT NULL,
+            body_part_examined VARCHAR(64),
+            series_description TEXT,
+            slice_thickness_mm FLOAT8,
+            pixel_spacing FLOAT8[],
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT fk_dicom_series_study FOREIGN KEY(study_id)
+                REFERENCES dicom_studies(study_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_series_study_id 
+            ON dicom_series(study_id);
+            
+        CREATE INDEX IF NOT EXISTS idx_series_uid 
+            ON dicom_series(series_instance_uid);
+            
+        CREATE INDEX IF NOT EXISTS idx_series_modality 
+            ON dicom_series(modality);
+
+        COMMENT ON TABLE dicom_series IS 'Specific imaging run or protocol within a clinical study.';
+        COMMENT ON COLUMN dicom_series.series_id IS 'Surrogate primary key for internal referencing.';
+        COMMENT ON COLUMN dicom_series.study_id IS 'Foreign key linking this series back to its parent clinical study.';
+        COMMENT ON COLUMN dicom_series.series_instance_uid IS 'Globally unique identifier for the series extracted from DICOM Tag (0020,000E).';
+        COMMENT ON COLUMN dicom_series.series_number IS 'Sequential number of this run within the study, from Tag (0020,0011).';
+        COMMENT ON COLUMN dicom_series.modality IS 'Imaging technology used (e.g., CT, MR, PT) extracted from Tag (0008,0060).';
+        COMMENT ON COLUMN dicom_series.body_part_examined IS 'Target anatomy (e.g., CHEST, ABDOMEN) extracted from Tag (0018,0015).';
+        COMMENT ON COLUMN dicom_series.series_description IS 'Technical run description extracted from Tag (0008,103E).';
+        COMMENT ON COLUMN dicom_series.slice_thickness_mm IS 'Physical depth of the slices in millimeters, extracted from Tag (0018,0050).';
+        COMMENT ON COLUMN dicom_series.pixel_spacing IS 'Physical distance between pixel centers [row, col] in mm, extracted from Tag (0028,0030).';
+        COMMENT ON COLUMN dicom_series.created_at IS 'UTC timestamp recording when this series was ingested.';
+        COMMENT ON INDEX idx_series_study_id IS 'B-Tree Index: Optimizes joins to fetch all scan series belonging to a specific hospital visit.';
+        COMMENT ON INDEX idx_series_uid IS 'B-Tree Index: Fast lookups during batch ingestion to prevent duplicate series inserts.';
+        COMMENT ON INDEX idx_series_modality IS 'B-Tree Index: Enables rapid filtering of the database by imaging technology.';
+    """)
+
+
+    # Instances
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dicom_instances ( 
+            file_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            series_id INTEGER NOT NULL,
+            sop_instance_uid VARCHAR(128) UNIQUE NOT NULL,
+            instance_number INTEGER,
+            file_name VARCHAR(255) NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size_bytes BIGINT NOT NULL,
+            file_sha256_hash VARCHAR(64) UNIQUE NOT NULL,
+            image_position_patient FLOAT8[],
+            rows INTEGER,
+            columns INTEGER,
+            metadata_json JSONB NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT fk_dicom_instances_series FOREIGN KEY(series_id)
+                REFERENCES dicom_series(series_id) ON DELETE CASCADE
+        );
         
-        COMMENT ON COLUMN c3d_files.file_id IS 'Master Primary Key for the imported C3D file. All metadata tables link back to this ID.';
-        COMMENT ON COLUMN c3d_files.file_name IS 'Original file name of the C3D file.';
-        COMMENT ON COLUMN c3d_files.file_path IS 'Absolute filesystem path of the source file.';
-        COMMENT ON COLUMN c3d_files.file_date IS 'Last modified timestamp of the source file.';
-        COMMENT ON COLUMN c3d_files.file_size IS 'File size in bytes.';
-        COMMENT ON COLUMN c3d_files.file_sha256_hash IS 'Cryptographic hash to guarantee uniqueness and prevent duplicate file ingestion.';
-        COMMENT ON COLUMN c3d_files.file_subject_name IS 'Extracted test subject identifier for downstream grouping.';
-        COMMENT ON COLUMN c3d_files.created_at IS 'Timestamp of when the file was ingested into the database.';
+        CREATE INDEX IF NOT EXISTS idx_instances_series_id ON dicom_instances(series_id);
+        CREATE INDEX IF NOT EXISTS idx_instances_sha256 ON dicom_instances(file_sha256_hash);
+        CREATE INDEX IF NOT EXISTS idx_instances_metadata_gin ON dicom_instances USING GIN (metadata_json);
+
+        COMMENT ON TABLE dicom_instances IS 'Master record for the physical DICOM files (.dcm) on disk.';
+        COMMENT ON COLUMN dicom_instances.file_id IS 'Master Primary Key for the imported DICOM file. All metadata tables link back to this ID.';
+        COMMENT ON COLUMN dicom_instances.series_id IS 'Foreign key linking this file to its parent acquisition series.';
+        COMMENT ON COLUMN dicom_instances.sop_instance_uid IS 'Globally unique identifier for this specific image slice, extracted from Tag (0008,0018).';
+        COMMENT ON COLUMN dicom_instances.instance_number IS 'Slice number within the series, extracted from Tag (0020,0013).';
+        COMMENT ON COLUMN dicom_instances.file_name IS 'Original file name of the DICOM file.';
+        COMMENT ON COLUMN dicom_instances.file_path IS 'Absolute filesystem path to the source file.';
+        COMMENT ON COLUMN dicom_instances.file_size_bytes IS 'File size in bytes.';
+        COMMENT ON COLUMN dicom_instances.file_sha256_hash IS 'Cryptographic hash to prevent duplicate file ingestion.';
+        COMMENT ON COLUMN dicom_instances.image_position_patient IS '3D physical coordinates [x, y, z] of the slice relative to the patient coordinate system.';
+        COMMENT ON COLUMN dicom_instances.rows IS 'Matrix row count (e.g., 512) from Tag (0028,0010).';
+        COMMENT ON COLUMN dicom_instances.columns IS 'Matrix column count (e.g., 512) from Tag (0028,0011).';
+        COMMENT ON COLUMN dicom_instances.metadata_json IS 'Complete extracted DICOM header dictionary stored as a queryable JSONB document.';
+        COMMENT ON COLUMN dicom_instances.created_at IS 'Timestamp of when the file was ingested into the database.';
+        
+        COMMENT ON INDEX idx_instances_series_id IS 'B-Tree Index: Optimizes foreign key joins to group all slices for a specific scan.';
+        COMMENT ON INDEX idx_instances_sha256 IS 'B-Tree Index: Crucial for instant cryptographic deduplication during file parsing.';
+        COMMENT ON INDEX idx_instances_metadata_gin IS 'GIN Index: Enables lightning-fast searches deep inside the unstructured DICOM metadata payload.';
     """)
 
     
-    # Header
-   
+    # Header (Tag Dictionary)
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_header (
+        CREATE TABLE IF NOT EXISTS dicom_header (
             header_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             header_file_id INTEGER NOT NULL,
+            header_tag VARCHAR(16) NOT NULL,
             header_name TEXT NOT NULL,
-            header_key TEXT NOT NULL,
+            header_vr VARCHAR(4),
             header_value TEXT NOT NULL,
             
-            UNIQUE(header_file_id, header_name),
+            UNIQUE(header_file_id, header_tag),
             
-            CONSTRAINT fk_c3d_headers_file_id FOREIGN KEY(header_file_id)
-                REFERENCES c3d_files(file_id) ON DELETE CASCADE
+            CONSTRAINT fk_dicom_headers_file_id FOREIGN KEY(header_file_id)
+                REFERENCES dicom_instances(file_id) ON DELETE CASCADE
         );
                 
-        CREATE INDEX IF NOT EXISTS idx_headers_file ON c3d_header(header_file_id);
-                
-        COMMENT ON COLUMN c3d_header.header_id IS 'Surrogate primary key for the header record.';
-        COMMENT ON COLUMN c3d_header.header_file_id IS 'Foreign key linking to the master C3D file.';
-        COMMENT ON COLUMN c3d_header.header_name IS 'Composite identifier combining section and key to prevent namespace collisions (e.g., POINT_RATE).';
-        COMMENT ON COLUMN c3d_header.header_key IS 'The parent section of the header telemetry (e.g., POINT or ANALOG).';
-        COMMENT ON COLUMN c3d_header.header_value IS 'The stringified value of the header telemetry.';
-    """)    
-
-
-    # Analog
-   
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_analog (
-            analog_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            analog_file_id INTEGER NOT NULL,
-            analog_label TEXT,      
-            analog_unit TEXT,       
-            analog_gain TEXT,       
-            analog_frames FLOAT8[] NOT NULL,
-            analog_offset INT,
-            analog_desc TEXT,       
+        CREATE INDEX IF NOT EXISTS idx_dicom_headers_file 
+            ON dicom_header(header_file_id);
             
-            CONSTRAINT uniq_c3d_analog_file_label 
-                UNIQUE (analog_file_id, analog_label),
-            CONSTRAINT fk_c3d_analog_file 
-                FOREIGN KEY (analog_file_id) 
-                REFERENCES c3d_files(file_id)
-                ON DELETE CASCADE
-        );
+        CREATE INDEX IF NOT EXISTS idx_dicom_headers_tag 
+            ON dicom_header(header_tag);
+
+        COMMENT ON TABLE dicom_header IS 'Normalized key-value store for individual DICOM header tags per image instance.';
+        COMMENT ON COLUMN dicom_header.header_id IS 'Surrogate primary key for the individual header tag record.';
+        COMMENT ON COLUMN dicom_header.header_file_id IS 'Foreign key linking to the master DICOM file.';
+        COMMENT ON COLUMN dicom_header.header_tag IS 'Hexadecimal DICOM tag identifier in (GGGG,EEEE) format (e.g., (0008,0060) or (0020,0032)).';
+        COMMENT ON COLUMN dicom_header.header_name IS 'Standardized DICOM keyword/element name (e.g., Modality, PatientName, SliceThickness).';
+        COMMENT ON COLUMN dicom_header.header_vr IS 'DICOM Value Representation code defining data type (e.g., CS=Code String, DS=Decimal String, UI=UID).';
+        COMMENT ON COLUMN dicom_header.header_value IS 'The stringified value extracted from the DICOM element.';
         
-        COMMENT ON COLUMN c3d_analog.analog_id IS 'Surrogate primary key for the specific analog channel record.';
-        COMMENT ON COLUMN c3d_analog.analog_file_id IS 'Foreign key linking this analog hardware data back to the master C3D file record.';
-        COMMENT ON COLUMN c3d_analog.analog_label IS 'The hardware identifier of the analog channel (e.g., Force_Z, EMG_Biceps). Forms a unique composite key with file_id to prevent duplicate channel ingestion.';
-        COMMENT ON COLUMN c3d_analog.analog_unit IS 'The engineering unit of measurement (e.g., V, N, mV). Critical for downstream physical calculations and ensuring force/voltage conversions are accurate.';
-        COMMENT ON COLUMN c3d_analog.analog_gain IS 'The hardware amplifier gain setting applied during data collection. Used to reverse-calculate raw voltages if the data was pre-scaled by the capture system.';
-        COMMENT ON COLUMN c3d_analog.analog_frames IS 'Sequential time-series array of the actual high-frequency analog measurements across all frames. Stored as a FLOAT8 array for maximum scientific precision.';
-        COMMENT ON COLUMN c3d_analog.analog_offset IS 'Baseline zero-offset (tare) value for the analog channel. Essential for calibrating the raw signal (e.g., removing the weight of an empty force plate) before analysis.';
-        COMMENT ON COLUMN c3d_analog.analog_desc IS 'Human-readable description of the analog channel configuration natively extracted from the C3D parameters.';
-
-        ALTER TABLE c3d_analog ALTER COLUMN analog_frames SET STORAGE EXTERNAL;
-        
-        CREATE INDEX IF NOT EXISTS idx_c3d_analog_file_id 
-            ON c3d_analog (analog_file_id);
-            
-        CREATE INDEX IF NOT EXISTS idx_c3d_analog_frames_gin 
-            ON c3d_analog USING GIN (analog_frames);
-
-        COMMENT ON INDEX idx_c3d_analog_file_id IS 'B-Tree Index: Optimizes foreign key cascading deletes and allows ultra-fast extraction of all analog hardware channels belonging to a single C3D file.';
-        COMMENT ON INDEX idx_c3d_analog_frames_gin IS 'GIN (Generalized Inverted Index): Enables fast membership queries without unpacking the entire array. Extremely useful for identifying signal clipping/peaking (e.g., rapidly finding files where an EMG sensor hit its maximum voltage).';
+        COMMENT ON INDEX idx_dicom_headers_file IS 'B-Tree Index: Optimizes foreign key joins to extract all tags for a single scan slice.';
+        COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)
-
     
-    # Parameters
-   
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_parameters (
-            parameters_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            parameters_file_id INTEGER NOT NULL,
-            parameters_group TEXT,
-            parameters_key TEXT,           
-            parameters_description TEXT,  
-            parameters_dimensions TEXT,
-            parameters_lock BOOL,
-            parameters_value_json JSONB,
-            
-            CONSTRAINT uniq_c3d_params_file_group_key 
-                UNIQUE (parameters_file_id, parameters_group, parameters_key),
-            CONSTRAINT fk_c3d_parameters_file 
-                FOREIGN KEY (parameters_file_id) 
-                REFERENCES c3d_files(file_id) 
-                ON DELETE CASCADE
-        );
-
-        COMMENT ON COLUMN c3d_parameters.parameters_id IS 'Surrogate primary key for the specific parameter record.';
-        COMMENT ON COLUMN c3d_parameters.parameters_file_id IS 'Foreign key linking this parameter back to the master C3D file record.';
-        COMMENT ON COLUMN c3d_parameters.parameters_group IS 'The high-level C3D parameter group folder (e.g., POINT, ANALOG, SUBJECTS). Acts as the primary namespace.';
-        COMMENT ON COLUMN c3d_parameters.parameters_key IS 'The specific parameter setting name (e.g., RATE, USED, LABELS). Forms a unique identifier alongside the file_id and group.';
-        COMMENT ON COLUMN c3d_parameters.parameters_description IS 'The embedded text description natively extracted from the C3D file, providing human-readable context for obscure parameter keys.';
-        COMMENT ON COLUMN c3d_parameters.parameters_dimensions IS 'The stringified matrix shape of the original data. Used programmatically to identify multi-dimensional array structures before unpacking the JSON payload.';
-        COMMENT ON COLUMN c3d_parameters.parameters_lock IS 'Stores the lock status (is_locked).';
-        COMMENT ON COLUMN c3d_parameters.parameters_value_json IS 'The core payload stored as binary JSON (JSONB). Crucial for handling polymorphic C3D data types (integers, floats, deep matrices, strings) within a single database column without breaking relational schema rules.';
-                  
-        CREATE INDEX IF NOT EXISTS idx_c3d_parameters_file_id 
-            ON c3d_parameters (parameters_file_id);
-        CREATE INDEX IF NOT EXISTS idx_c3d_parameters_group_key 
-            ON c3d_parameters (parameters_file_id, parameters_group, parameters_key);
-            
-        CREATE INDEX IF NOT EXISTS idx_c3d_parameters_value_json 
-            ON c3d_parameters USING GIN (parameters_value_json);
-
-        COMMENT ON INDEX idx_c3d_parameters_file_id IS 'B-Tree Index: Optimizes cascading deletes and master-detail joins when extracting all parameters for a specific file.';
-        COMMENT ON INDEX idx_c3d_parameters_group_key IS 'Composite B-Tree Index: Highly optimized for point-queries. Allows instant data retrieval when the application asks for a specific setting.';
-        COMMENT ON INDEX idx_c3d_parameters_value_json IS 'GIN (Generalized Inverted Index): The search engine for the JSONB payload. Allows ultra-fast, document-style queries to look inside nested parameter arrays.';
-    """)
-
-    
-    # Points
-  
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS c3d_points (
-            points_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            points_file_id INTEGER NOT NULL,
-            points_frame_count INTEGER NOT NULL, 
-            points_label TEXT NOT NULL, 
-            points_frames_x FLOAT8[] NOT NULL,
-            points_frames_y FLOAT8[] NOT NULL,
-            points_frames_z FLOAT8[] NOT NULL,
-            points_frames_r FLOAT8[] NOT NULL,   
-            
-            CONSTRAINT uniq_points_file_label 
-                UNIQUE (points_file_id, points_label),
-            CONSTRAINT fk_points_file
-                FOREIGN KEY (points_file_id)
-                REFERENCES c3d_files(file_id) 
-                ON DELETE CASCADE,
-            CONSTRAINT chk_c3d_points_valid_lengths CHECK (
-                array_length(points_frames_x, 1) = points_frame_count AND
-                array_length(points_frames_y, 1) = points_frame_count AND
-                array_length(points_frames_z, 1) = points_frame_count AND
-                array_length(points_frames_r, 1) = points_frame_count 
-            )
-        );
-                
-        COMMENT ON COLUMN c3d_points.points_id IS 'Surrogate primary key for the specific point trajectory record.';
-        COMMENT ON COLUMN c3d_points.points_file_id IS 'Foreign key linking this trajectory data back to the master C3D file record.';
-        COMMENT ON COLUMN c3d_points.points_frame_count IS 'Total number of recorded frames for this specific marker. Used programmatically to validate data completeness via the array length CHECK constraint.';
-        COMMENT ON COLUMN c3d_points.points_label IS 'The physical name/identifier of the tracking marker (e.g., L_KNEE, R_HEEL). Forms a unique composite key with the file_id to prevent duplicate markers per file.';
-        COMMENT ON COLUMN c3d_points.points_frames_x IS 'Sequential time-series array of X-axis spatial coordinates across all frames. Stored as FLOAT8 array for precision 3D reconstruction.';
-        COMMENT ON COLUMN c3d_points.points_frames_y IS 'Sequential time-series array of Y-axis spatial coordinates across all frames.';
-        COMMENT ON COLUMN c3d_points.points_frames_z IS 'Sequential time-series array of Z-axis spatial coordinates across all frames.';
-        COMMENT ON COLUMN c3d_points.points_frames_r IS 'Sequential array of Residual (error) values or camera contribution flags per frame. Crucial for evaluating the reliability and physical validity of the 3D coordinate at any given frame.';
-
-        ALTER TABLE c3d_points ALTER COLUMN points_frames_x SET STORAGE EXTERNAL;
-        ALTER TABLE c3d_points ALTER COLUMN points_frames_y SET STORAGE EXTERNAL;
-        ALTER TABLE c3d_points ALTER COLUMN points_frames_z SET STORAGE EXTERNAL;
-        ALTER TABLE c3d_points ALTER COLUMN points_frames_r SET STORAGE EXTERNAL;
-
-        CREATE INDEX IF NOT EXISTS idx_c3d_points_file_id 
-            ON c3d_points(points_file_id);
-            
-        CREATE INDEX IF NOT EXISTS idx_c3d_points_x_gin 
-            ON c3d_points USING GIN (points_frames_x);
-        CREATE INDEX IF NOT EXISTS idx_c3d_points_y_gin 
-            ON c3d_points USING GIN (points_frames_y);
-        CREATE INDEX IF NOT EXISTS idx_c3d_points_z_gin 
-            ON c3d_points USING GIN (points_frames_z);
-        CREATE INDEX IF NOT EXISTS idx_c3d_points_r_gin 
-            ON c3d_points USING GIN (points_frames_r);
-
-        COMMENT ON INDEX idx_c3d_points_file_id IS 'B-Tree Index: Optimizes foreign key joins and allows ultra-fast extraction of all point trajectories belonging to a single C3D file for 3D plotting.';
-        COMMENT ON INDEX idx_c3d_points_x_gin IS 'GIN (Generalized Inverted Index): Enables rapid array-intersection queries (e.g., finding if a specific coordinate anomaly exists) without unpacking the entire FLOAT8 array into memory.';
-        COMMENT ON INDEX idx_c3d_points_y_gin IS 'GIN (Generalized Inverted Index): Accelerates deep array element lookups for Y-axis anomalies.';
-        COMMENT ON INDEX idx_c3d_points_z_gin IS 'GIN (Generalized Inverted Index): Accelerates deep array element lookups for Z-axis anomalies.';
-        COMMENT ON INDEX idx_c3d_points_r_gin IS 'GIN (Generalized Inverted Index): Highly analytical index. Allows fast querying to find exactly which trajectories contain unacceptably high residual/error values.';
-    """)
 
     # Default settings (only if resetting)
     if reset_tables:
         cur.execute("""
-            INSERT INTO c3d_settings (key, value) VALUES 
-            ('min_file_size', '307200'),
+            INSERT INTO dicom_settings (key, value) VALUES 
+            ('min_file_size', '102400'),
             ('max_file_size', '103809024'),
-            ('subject_min_length', '3'),
-            ('max_file_age_months', '24'),
+            ('subject_min_length', '2'),
+            ('max_file_age_months', '1200'),
             ('workers', '4'),
-            ('safe_c3d_folder', '')
+            ('safe_dicom_folder', '')
             ON CONFLICT (key) DO NOTHING;
         """)
     
