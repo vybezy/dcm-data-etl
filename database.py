@@ -55,7 +55,8 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
     if not options.session_id:
         return
     frame = inspect.currentframe().f_back
-    module = inspect.getmodule(frame).__name__
+    caller_module = inspect.getmodule(frame)  # can be None (e.g. code run via exec)
+    module = caller_module.__name__ if caller_module else "unknown"
     funcname = frame.f_code.co_name
     lineno = frame.f_lineno
     process_name = multiprocessing.current_process().name
