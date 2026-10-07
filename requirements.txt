@@ -1,0 +1,15 @@
+# Data Parsing
+pydicom>=2.4.0
+
+# Database Connection
+psycopg2
+
+# Security & Configuration
+python-dotenv
+
+# Cloud Ingestion
+azure-storage-blob
+
+# Profiling & Testing
+line-profiler
+pytest
