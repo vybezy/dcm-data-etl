@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     if os.path.exists("/data"):
         target_path = "/data"
-        download_c3d_from_azure(target_path)
+        download_dicom_from_azure(target_path)
     else:
         target_path = "./data"
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         subject_min_length=int(settings.get("subject_min_length", 3)),
         max_file_age_months=int(settings.get("max_file_age_months", 24)),
         workers=int(settings.get("workers", 4)),
-        safe_c3d_folder=settings.get("safe_c3d_folder"),
+        safe_dicom_folder=settings.get("safe_dicom_folder"),
         session_id=session_id
     )
 
@@ -60,5 +60,5 @@ if __name__ == "__main__":
         for f in file_list:
             scan_and_import(os.path.dirname(f), options)
     else:
-        print(f"Importing all .c3d from folder: {target_path}")
+        print(f"Importing all .dcm from folder: {target_path}")
         scan_and_import(target_path, options)
