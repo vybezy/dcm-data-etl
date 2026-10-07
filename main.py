@@ -29,6 +29,7 @@ LOCAL_DATA_DIR = "./data"
 
 
 def parse_args(argv=None) -> argparse.Namespace:
+    """reads the command-line options (see the examples at the top of this file)."""
     default_path = DOCKER_DATA_DIR if os.path.isdir(DOCKER_DATA_DIR) else LOCAL_DATA_DIR
 
     parser = argparse.ArgumentParser(
@@ -60,7 +61,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def resolve_input(target_path: str):
     """
-    Returns (base_folder, file_list) for a folder, a single file or a wildcard.
+    returns (base_folder, file_list) for a folder, a single file or a wildcard.
     file_list is None for a folder, meaning "scan the whole folder".
     Returns (None, None) if nothing matches.
     """
@@ -80,6 +81,7 @@ def resolve_input(target_path: str):
 
 
 def main(argv=None) -> int:
+    """runs one import and returns the exit code (0 ok, 1 a file errored, 2 bad path)."""
     args = parse_args(argv)
 
     # optional cloud ingestion: only makes sense when the target is a folder

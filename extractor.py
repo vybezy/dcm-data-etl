@@ -1,3 +1,6 @@
+"""
+turns a DICOM header into database rows: patient -> study -> series -> instance -> tags.
+"""
 import json
 from datetime import datetime
 import pydicom
@@ -9,16 +12,16 @@ from utils import Profiler
 # ------------------------- Metadata Extraction -------------------------
 
 
-# Value Representations that hold raw bytes rather than text or numbers
+# value Representations that hold raw bytes rather than text or numbers
 BINARY_VRS = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 
-# Max characters stored per value in dicom_header (the JSONB column keeps everything)
+# max characters stored per value in dicom_header (the JSONB column keeps everything)
 MAX_HEADER_VALUE_LENGTH = 1000
 
 
 def tag_key(tag) -> str:
     """
-    One tag format everywhere: 8 uppercase hex digits, e.g. '00080060' for Modality.
+    one tag format everywhere: 8 uppercase hex digits, e.g. '00080060' for Modality.
     This is the key format of the DICOM JSON Model (PS3.18 Annex F).
     """
     return f"{tag.group:04X}{tag.element:04X}"
@@ -31,7 +34,7 @@ def _strip_nulls(text: str) -> str:
 
 def element_to_json(value, vr=None):
     """
-    Converts a pydicom element value to a JSON-safe Python value:
+    converts a pydicom element value to a JSON-safe Python value:
       - sequences (SQ) become a list of nested tag dictionaries, so no data is lost
       - binary values become a short '<binary: N bytes>' description
       - multi-values are joined with backslash, the DICOM separator
@@ -50,7 +53,7 @@ def element_to_json(value, vr=None):
 
 
 def dataset_to_dict(dataset) -> dict:
-    """Every tag of a dataset (pixel data excluded) as {tag_key: {name, vr, value}}."""
+    """every tag of a dataset (pixel data excluded) as {tag_key: {name, vr, value}}."""
     result = {}
     for elem in dataset:
         if elem.tag.group == 0x7FE0:  # skip raw pixel data
@@ -65,7 +68,7 @@ def dataset_to_dict(dataset) -> dict:
 
 def clean_tag_value(value, vr=None) -> str:
     """
-    Text form of a value for the dicom_header table.
+    text form of a value for the dicom_header table.
     Sequences are stored as their JSON structure.
     """
     converted = element_to_json(value, vr)
@@ -76,7 +79,7 @@ def clean_tag_value(value, vr=None) -> str:
 
 def parse_dicom_date(value):
     """
-    Converts a DICOM DA value (YYYYMMDD) to an ISO date string 'YYYY-MM-DD'.
+    converts a DICOM DA value (YYYYMMDD) to an ISO date string 'YYYY-MM-DD'.
     Also accepts the legacy ACR-NEMA form YYYY.MM.DD.
     Returns None for empty or invalid dates (e.g. '20241399') instead of raising,
     so one bad tag doesn't make the whole file fail to import.
@@ -98,7 +101,7 @@ def parse_dicom_date(value):
 
 def parse_dicom_time(value):
     """
-    Converts a DICOM TM value (HH, HHMM, HHMMSS or HHMMSS.FFFFFF) to 'HH:MM:SS'.
+    converts a DICOM TM value (HH, HHMM, HHMMSS or HHMMSS.FFFFFF) to 'HH:MM:SS'.
     Also accepts the legacy form HH:MM:SS. Fractional seconds are dropped.
     Returns None for empty or invalid times (e.g. '256000').
     """
@@ -119,13 +122,13 @@ def parse_dicom_time(value):
 
 
 def build_metadata_json(dataset: pydicom.dataset.FileDataset) -> str:
-    """Serialize the entire DICOM header, including nested sequences, into a queryable JSON dictionary."""
+    """serialize the entire DICOM header, including nested sequences, into a queryable JSON dictionary."""
     return json.dumps(dataset_to_dict(dataset))
 
 @Profiler
 def extract_and_upsert_patient(conn, dataset: pydicom.dataset.FileDataset, sha: str) -> int:
     """
-    Extracts patient demographics and returns the patient_id.
+    extracts patient demographics and returns the patient_id.
     """
     mrn = str(dataset.get("PatientID", f"UNKNOWN_{sha[:8]}"))
     name = str(dataset.get("PatientName", "ANONYMOUS"))
@@ -145,7 +148,7 @@ def extract_and_upsert_patient(conn, dataset: pydicom.dataset.FileDataset, sha: 
 @Profiler
 def extract_and_upsert_study(conn, dataset: pydicom.dataset.FileDataset, patient_id: int) -> int:
     """
-    Extracts the clinical study/exam details and returns the study_id.
+    extracts the clinical study/exam details and returns the study_id.
     """
     study_uid = str(dataset.get("StudyInstanceUID", ""))
     if not study_uid:
@@ -173,7 +176,7 @@ def extract_and_upsert_study(conn, dataset: pydicom.dataset.FileDataset, patient
 @Profiler
 def extract_and_upsert_series(conn, dataset: pydicom.dataset.FileDataset, study_id: int) -> int:
     """
-    Extracts the scanner protocol data and returns the series_id.
+    extracts the scanner protocol data and returns the series_id.
     """
     series_uid = str(dataset.get("SeriesInstanceUID", ""))
     if not series_uid:
@@ -215,7 +218,7 @@ def extract_and_upsert_series(conn, dataset: pydicom.dataset.FileDataset, study_
 def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_id: int,
                             filename: str, abs_path: str, sha: str, file_size: int) -> int:
     """
-    Extracts the file-level instances and returns the master file_id.
+    extracts the file-level instances and returns the master file_id.
     """
     sop_uid = str(dataset.get("SOPInstanceUID", ""))
     if not sop_uid:
@@ -250,12 +253,12 @@ def extract_and_insert_file(conn, dataset: pydicom.dataset.FileDataset, series_i
 @Profiler
 def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_id: int):
     """
-    Extracts all individual DICOM tags and uses execute_values for high-speed bulk inserts.
+    extracts all individual DICOM tags and uses execute_values for high-speed bulk inserts.
     """
     header_records = []
 
     for elem in dataset:
-        if elem.tag.group == 0x7fe0:  # Skip raw pixel data
+        if elem.tag.group == 0x7FE0:  # skip raw pixel data
             continue
 
         name = elem.keyword if elem.keyword else "Unknown"
@@ -284,7 +287,7 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
 def process_dicom_file(conn, dataset: pydicom.dataset.FileDataset, abs_path: str,
                        filename: str, sha: str, file_size: int) -> int:
     """
-    Main entry point. Coordinates the hierarchical extraction and insertion sequentially.
+    main entry point. Coordinates the hierarchical extraction and insertion sequentially.
     `dataset` is the header already read (and validated) by processor.process_file(),
     so the file is only parsed once.
 

@@ -1,8 +1,11 @@
+"""
+database credentials from .env and the default import settings.
+"""
 import os
 from dotenv import load_dotenv
 
 
-# Default import settings: the single source of truth.
+# default import settings: the single source of truth.
 # db_init() seeds the dicom_settings table from this dict, and main.py falls back
 # to it if a key is missing. Values are strings because the table stores TEXT.
 DEFAULT_SETTINGS = {
@@ -13,13 +16,9 @@ DEFAULT_SETTINGS = {
 }
 
 def config():
-
-    # Loads database configuration from .env file.
-
-    # load .env file variables
+    """returns the database connection settings from the environment / .env file."""
     load_dotenv()
 
-    # saves environment variables to the dictionary keys
     db = {
         'host': os.getenv('DB_HOST'),
         'database': os.getenv('DB_NAME'),

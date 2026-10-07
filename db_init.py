@@ -1,12 +1,15 @@
+"""
+creates the database schema (patients, studies, series, instances, headers, logs, settings).
+"""
 import logging
 from config import DEFAULT_SETTINGS
 from database import db_connection
 
 
-# Settings that older versions seeded but no code ever read; see _create_schema().
+# settings that older versions seeded but no code ever read; see _create_schema().
 OBSOLETE_SETTINGS = ("subject_min_length", "safe_dicom_folder")
 
-# Indexes that older versions created on top of UNIQUE constraints; see _create_schema().
+# indexes that older versions created on top of UNIQUE constraints; see _create_schema().
 REDUNDANT_INDEXES = (
     "idx_patients_mrn",
     "idx_studies_uid",
@@ -18,7 +21,7 @@ REDUNDANT_INDEXES = (
 
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
     """
-    Creates all pipeline tables (and drops them first if reset_tables=True).
+    creates all pipeline tables (and drops them first if reset_tables=True).
     Runs in one transaction: if any statement fails, nothing is half-created,
     and the connection is always closed.
     """
@@ -32,7 +35,7 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
 
 
 def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
-
+    """runs all the CREATE TABLE / INDEX statements, plus clean-up of older schema objects."""
     if reset_tables:
         logger.info("Resetting database tables...")
         cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
@@ -45,7 +48,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         cur.execute("DROP TABLE IF EXISTS dicom_patients CASCADE;")
 
 
-    # Logger Session
+    # logger Session
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger_session (
@@ -62,7 +65,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Logger
+    # logger
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger (
@@ -97,7 +100,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Settings
+    # settings
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_settings (
@@ -109,7 +112,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_settings.value IS 'Configuration parameter value stored as text for flexible casting.';
     """)
 
-    # Patients
+    # patients
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_patients (
@@ -131,7 +134,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Studies (Clinical Examination / Hospital Appointment)
+    # studies (Clinical Examination / Hospital Appointment)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_studies (
@@ -167,7 +170,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Series (Scanner Protocol / Acquisition Run)
+    # series (Scanner Protocol / Acquisition Run)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_series (
@@ -208,7 +211,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Instances
+    # instances
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_instances (
@@ -253,7 +256,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Header (Tag Dictionary)
+    # header (Tag Dictionary)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_header (
             header_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -284,17 +287,17 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
     """)
 
 
-    # Remove indexes created by earlier versions of this schema. Each one
+    # remove indexes created by earlier versions of this schema. Each one
     # duplicated an index PostgreSQL already builds for a UNIQUE constraint
     # (the composite UNIQUE(header_file_id, header_tag) also covers lookups on
     # header_file_id alone). Harmless no-op on a fresh database.
     for redundant_index in REDUNDANT_INDEXES:
         cur.execute(f"DROP INDEX IF EXISTS {redundant_index};")
 
-    # Remove settings left over from the C3D version of this pipeline
+    # remove settings left over from earlier versions of this pipeline
     cur.execute("DELETE FROM dicom_settings WHERE key = ANY(%s);", (list(OBSOLETE_SETTINGS),))
 
-    # Default settings: inserted on every run, but ON CONFLICT keeps any value
+    # default settings: inserted on every run, but ON CONFLICT keeps any value
     # an operator has already changed, so tuned settings survive restarts.
     cur.executemany(
         "INSERT INTO dicom_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;",
