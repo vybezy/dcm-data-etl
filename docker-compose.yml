@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:15
-    container_name: c3d_postgres
+    container_name: dcm_postgres
     restart: always
     env_file:
       - .env
@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck: # runs python script once db is ready
@@ -21,7 +21,7 @@ services:
 
   etl_pipeline:
     build: .
-    container_name: c3d_pipeline
+    container_name: dcm_pipeline
     env_file:
       - .env
     environment: # overrides localhost to db
