@@ -329,6 +329,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 - **Process pool instead of threads.** Parsing and hashing are CPU-bound, so separate processes avoid the GIL. Each worker opens its own database connection, so no connections are shared across processes.
 - **One transaction per file.** The hierarchy is written all-or-nothing, which keeps the database consistent even when a single file is malformed.
 - **Upserts instead of check-then-insert.** `ON CONFLICT` on the DICOM UIDs makes the pipeline idempotent and safe under concurrent workers.
+- **No duplicate indexes.** PostgreSQL already builds an index for every `UNIQUE` constraint (patient MRN, study/series UIDs, SHA-256 hash, and `(header_file_id, header_tag)`), so the schema adds explicit indexes only on columns that are not already covered, such as foreign keys, modality, tag and the `JSONB` GIN index. This avoids paying for the same index twice on every insert.
 - **`JSONB` plus a per-tag table.** `JSONB` serves flexible whole-header queries, while `dicom_header` supports indexed relational lookups by tag.
 - **Settings in the database.** Operators can tune limits and parallelism without rebuilding the image.
 - **Logs in the database.** Per-session, per-file event rows make an import auditable and queryable with plain SQL.
