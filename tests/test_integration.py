@@ -44,7 +44,7 @@ def db(monkeypatch, tmp_path):
     monkeypatch.setenv("DB_NAME", TEST_DB_NAME)
     monkeypatch.setenv("DB_USER", os.getenv("TEST_DB_USER", "postgres"))
     monkeypatch.setenv("DB_PASSWORD", os.getenv("TEST_DB_PASSWORD", "postgres"))
-    monkeypatch.setenv("PGPORT", os.getenv("TEST_DB_PORT", "5432"))
+    monkeypatch.setenv("DB_PORT", os.getenv("TEST_DB_PORT", "5432"))
     monkeypatch.chdir(tmp_path)  # keeps profiler_logs.txt etc. out of the repo
 
     db_init(reset_tables=True, logger=logger)

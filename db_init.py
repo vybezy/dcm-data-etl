@@ -2,7 +2,7 @@ import logging
 from config import config
 import psycopg2
 
-def db_init(reset_tables: bool = True, logger: logging.Logger = None):
+def db_init(reset_tables: bool = False, logger: logging.Logger = None):
 
     params = config()
     conn = psycopg2.connect(**params)
@@ -280,20 +280,20 @@ def db_init(reset_tables: bool = True, logger: logging.Logger = None):
     """)
     
 
-    # Default settings (only if resetting)
-    if reset_tables:
-        cur.execute("""
-            INSERT INTO dicom_settings (key, value) VALUES 
-            ('min_file_size', '102400'),
-            ('max_file_size', '103809024'),
-            ('subject_min_length', '2'),
-            ('max_file_age_months', '1200'),
-            ('workers', '4'),
-            ('safe_dicom_folder', '')
-            ON CONFLICT (key) DO NOTHING;
-        """)
+    # Default settings: inserted on every run, but ON CONFLICT keeps any value
+    # an operator has already changed, so tuned settings survive restarts.
+    cur.execute("""
+        INSERT INTO dicom_settings (key, value) VALUES
+        ('min_file_size', '102400'),
+        ('max_file_size', '103809024'),
+        ('subject_min_length', '2'),
+        ('max_file_age_months', '1200'),
+        ('workers', '4'),
+        ('safe_dicom_folder', '')
+        ON CONFLICT (key) DO NOTHING;
+    """)
     
     conn.commit()
     cur.close()
     conn.close()
-    logger.info("Database tables initialized (reset: %s)", reset_tables)
+    logger.info("Database tables initialized (reset: %s)", reset_tables)

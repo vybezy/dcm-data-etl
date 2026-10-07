@@ -47,14 +47,16 @@ def compute_sha256(path: str) -> str:
 def process_file(path: str, options_dict: dict):
     options = ImportOptions(**options_dict)
     result = {"path": path, "status": "error", "message": "Initial", "db_file_id": None, "metadata": None}
-    
+
+    # set before the try so the except/finally blocks can always reference them,
+    # even when config() or connect() is what failed
+    params = None
+    conn = None
+
     try:
         params = config()
         conn = psycopg2.connect(**params)
-        if not conn:
-            result.update(status="error", message="Database connection failed")
-            return result
-            
+
         try:
             abs_path = sanitize_and_validate_path(path, options.base_folder)
         except Exception as e:
@@ -152,23 +154,39 @@ def process_file(path: str, options_dict: dict):
     except Exception as e:
         reason = f"Exception: {e}"
         pretty_log("CRITICAL", f"Critical error in worker", file=path, extra=reason)
-        conn = psycopg2.connect(**params)
-        with conn:
-            log_db_event(conn, options, path, "CRITICAL", reason, exc=e)
+
+        # Log to the DB on a fresh connection (the original one may be broken or
+        # may never have opened). If that also fails, the console log above is
+        # enough - never let the logging attempt hide the original error.
+        if params is not None:
+            log_conn = None
+            try:
+                log_conn = psycopg2.connect(**params)
+                log_db_event(log_conn, options, path, "CRITICAL", reason, exc=e)
+            except Exception as log_err:
+                logger.error("Could not write CRITICAL event to the database: %s", log_err)
+            finally:
+                if log_conn is not None:
+                    log_conn.close()
+
         result.update(status="error", message=reason)
         return result
-    
+
     finally:
-        if conn:
+        if conn is not None:
             conn.close()
 
 # file import process
 
-def scan_and_import(folder: str, options: ImportOptions):
-    
-    # grabs every file so process_file() can demonstrate the skip logic
-    file_list = [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
-    logger.info("Found %d DCM files", len(file_list))
+def scan_and_import(folder: str, options: ImportOptions, file_list: list = None):
+    """
+    Imports every file under `folder`, or only the files in `file_list` if given.
+    Returns one result dict per file.
+    """
+    if file_list is None:
+        # grabs every file so process_file() can demonstrate the skip logic
+        file_list = [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
+    logger.info("Found %d file(s) to process", len(file_list))
 
     options_dict = asdict(options)  # convert dataclass to dict
 
@@ -196,6 +214,8 @@ def scan_and_import(folder: str, options: ImportOptions):
                     _append_result(res)
                 except Exception as e:
                     handle_exception(e, options, file_path=file_path, level="CRITICAL")
+                    # record the crash so it is counted in the summary and exit code
+                    _append_result({"path": file_path, "status": "error", "message": str(e)})
 
     # sequential fallback 
     else:
@@ -217,4 +237,4 @@ def scan_and_import(folder: str, options: ImportOptions):
             summary["error"] += 1
 
     logger.info("Import summary: %s", summary)
-    return results
+    return results

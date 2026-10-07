@@ -4,3 +4,6 @@ __pycache__/
 *.txt
 *.dcm
 !requirements.txt
+.venv/
+venv/
+.pytest_cache/

@@ -1,6 +1,6 @@
 # DICOM Clinical Data ETL Pipeline
 
-![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/vybezy/dcm-data-etl/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
@@ -31,7 +31,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | Area | What it does |
 |---|---|
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. |
-| **Relational modelling** | Patient → Study → Series Instance hierarchy, loaded with unaltered `INSERT ... ON CONFLICT` upserts. |
+| **Relational modelling** | Patient → Study → Series Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Bulk inserts use `execute_values`. |
 | **Input validation** | Checks file extension, filename whitelist, size limits, file-age limits and future-date rejection. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
@@ -173,17 +173,13 @@ git clone https://github.com/USER/REPO.git
 cd REPO
 ```
 
-Create a `.env` file in the project root (never commit it):
+Copy the template. Its development defaults work as they are, and `.env` is git-ignored:
 
-```env
-DB_HOST=localhost
-DB_NAME=dicom_db
-DB_USER=postgres
-DB_PASSWORD=enter_the_password
-
-# Optional: download source files from Azure Blob Storage (container: raw-dicom-files)
-# AZURE_STORAGE_CONNECTION_STRING=...
+```bash
+cp .env.example .env
 ```
+
+To download source files from Azure Blob Storage (container `raw-dicom-files`), set `AZURE_STORAGE_CONNECTION_STRING` in `.env`.
 
 ### 2. Add data
 
@@ -206,7 +202,23 @@ pip install -r requirements.txt
 python main.py
 ```
 
-> **Warning:** `RESET_TABLES = True` in `main.py` drops and recreates all tables on every run for a clean slate. Set it to `False` to keep existing data.
+### Command-line options
+
+```bash
+python main.py [PATH] [--workers N] [--dry-run] [--reset] [--no-azure]
+```
+
+| Option | Meaning |
+|---|---|
+| `PATH` | A folder, a single `.dcm` file or a wildcard such as `"./data/*.dcm"`. Defaults to `/data` in Docker, otherwise `./data`. |
+| `--workers N` | Parallel worker processes (`0` = sequential). Overrides the `workers` setting in the database. |
+| `--dry-run` | Run every validation and duplicate check without inserting anything. |
+| `--reset` | Drop and recreate all pipeline tables first. **Deletes all imported data.** |
+| `--no-azure` | Skip the Azure Blob Storage download even if a connection string is set. |
+
+Data is kept between runs by default, so re-running the pipeline on the same folder reports the already-imported files as `duplicate` instead of inserting them again.
+
+The process exits with `0` when no file errored, `1` when at least one file errored, and `2` when the input path does not exist. This makes it easy to use in scripts and CI.
 
 ---
 
@@ -318,4 +330,4 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 
 ## Author
 
-Developed by **MARIA MARINI**
+Developed by **MARIA MARINI**

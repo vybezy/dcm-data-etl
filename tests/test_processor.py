@@ -311,3 +311,29 @@ def test_scan_and_import_survives_worker_exception(tmp_path):
 
     assert len(results) == 1
     assert results[0]["status"] == "error"
+
+def test_process_file_survives_database_connection_failure(tmp_path):
+    """If the DB is unreachable, the worker must return an error result,
+    not crash with UnboundLocalError from the except/finally blocks."""
+    f = tmp_path / "a.dcm"
+    f.write_bytes(b"data")
+
+    with patch("processor.config", return_value={}), \
+         patch("processor.psycopg2.connect", side_effect=psycopg2.OperationalError("db down")), \
+         patch("processor.pretty_log"):
+        result = run_process_file(f, make_options(tmp_path))
+
+    assert result["status"] == "error"
+    assert "db down" in result["message"]
+
+
+def test_scan_and_import_only_processes_given_file_list(tmp_path):
+    for name in ("a.dcm", "b.dcm", "c.dcm"):
+        (tmp_path / name).write_bytes(b"data")
+    only = [str(tmp_path / "b.dcm")]
+
+    fake = lambda path, opts: {"path": path, "status": "inserted"}
+    with patch("processor.process_file", side_effect=fake):
+        results = scan_and_import(str(tmp_path), make_options(tmp_path), file_list=only)
+
+    assert [r["path"] for r in results] == only

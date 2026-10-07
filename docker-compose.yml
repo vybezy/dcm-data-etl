@@ -26,11 +26,12 @@ services:
       - .env
     environment: # overrides localhost to db
       DB_HOST: db
-    volumes: # puts folder containing c3d files in container
+      DB_PORT: "5432"
+    volumes: # mounts the folder containing .dcm files into the container
       - ./data:/data
     depends_on: # makes sure db is fully booted up before connecting
       db:
         condition: service_healthy
 
 volumes:
-  pgdata:
+  pgdata:

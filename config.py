@@ -22,5 +22,8 @@ def config():
             "Missing database credentials. Ensure a .env file exists "
             "with DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD defined."
         )
-        
+
+    # optional: defaults to the standard PostgreSQL port
+    db['port'] = os.getenv('DB_PORT', '5432')
+
     return db
