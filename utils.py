@@ -2,15 +2,12 @@ import io
 import sys
 import os
 import inspect
-import threading
-import multiprocessing
 import traceback
 from logger import pretty_log, logger
 from functools import wraps
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
-from logger import pretty_log, logger
 from azure.storage.blob import BlobServiceClient
 
 
@@ -112,15 +109,12 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
             lineno = caller.f_lineno
             funcname = caller.f_code.co_name
 
-        process_name = multiprocessing.current_process().name
-        thread_name = threading.current_thread().name
-
         # Message to where its stored
         message = f"{exc_type} in {funcname} at {filename}:{lineno} -> {e}\n{tb_str}"
 
-        # Console + file logger με stacktrace
+        # Console + critical log file, with the stack trace
         pretty_log(level, f"{exc_type}: {e}", file=file_path, extra=f"{filename}:{lineno}")
-        logger.exception(message)  # writes full traceback to αρχείο/console handlers
+        logger.exception(message)  # writes the full traceback to the log handlers
 
         # Database logging (if there's session_id)
         session_id = getattr(options, "session_id", None) if options is not None else None
@@ -149,27 +143,27 @@ def download_dicom_from_azure(download_dir: str = "/data") -> str:
     """
     connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     if not connection_string:
-        print("[INFO] No AZURE_STORAGE_CONNECTION_STRING found; using existing local files.")
+        logger.info("No AZURE_STORAGE_CONNECTION_STRING found; using existing local files.")
         return download_dir
 
-    print("[INFO] Connecting to Azure Blob Storage...")
+    logger.info("Connecting to Azure Blob Storage...")
     try:
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         container_client = blob_service_client.get_container_client("raw-dicom-files")
-        
+
         os.makedirs(download_dir, exist_ok=True)
         downloaded = 0
 
         for blob in container_client.list_blobs():
             dest_path = os.path.join(download_dir, os.path.basename(blob.name))
             if not os.path.exists(dest_path):
-                print(f"[INFO] Downloading {blob.name} from Azure Blob Storage...")
+                logger.info("Downloading %s from Azure Blob Storage...", blob.name)
                 with open(dest_path, "wb") as f:
                     f.write(container_client.download_blob(blob.name).readall())
                 downloaded += 1
 
-        print(f"[INFO] Azure download complete: {downloaded} new file(s) retrieved.")
+        logger.info("Azure download complete: %d new file(s) retrieved.", downloaded)
     except Exception as e:
-        print(f"[WARNING] Azure download failed: {e}. Falling back to existing directory contents.")
+        logger.warning("Azure download failed: %s. Falling back to existing directory contents.", e)
 
     return download_dir
