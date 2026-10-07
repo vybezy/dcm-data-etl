@@ -324,8 +324,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ```
 .
 ├── .github/workflows/ci.yml   # CI: PostgreSQL service + pytest
-├── data/                      # input .dcm files (git-ignored)
-├── samples/                   # 5 de-identified sample .dcm files + source and citation
+├── data/                      # input .dcm files
+├── samples/                   # 5 sample .dcm files
 ├── tests/                     # unit and integration tests (pytest)
 ├── main.py                    # entry point: command-line options, init DB, build options
 ├── processor.py               # validation, hashing, dedupe, scan-date check, parallel orchestration
@@ -335,7 +335,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── config.py                  # database credentials from .env and DEFAULT_SETTINGS
 ├── logger.py                  # console and file logging, pretty_log
 ├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
-├── .env.example               # template for .env (copy it, never commit .env)
+├── .env.example               # template for .env
 ├── .dockerignore              # keeps .env and data out of the Docker image
 ├── Dockerfile
 ├── docker-compose.yml
@@ -371,4 +371,4 @@ DICOM files can contain protected health information (PHI), so the project treat
 
 ## Author
 
-Developed by **Maria Marini**.
+Developed by **Maria Marini**.
