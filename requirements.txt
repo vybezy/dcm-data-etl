@@ -1,6 +1,5 @@
-# C3D Data Parsing & Math
-ezc3d
-numpy
+# Data Parsing
+pydicom>=2.4.0
 
 # Database Connection
 psycopg2
