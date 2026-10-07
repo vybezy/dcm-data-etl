@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 import main
+from config import DEFAULT_SETTINGS
 
 
 # ------------------------- resolve_input -------------------------
@@ -96,3 +97,22 @@ def test_main_rejections_are_not_errors(tmp_path, fake_pipeline):
     _, scan = fake_pipeline
     scan.return_value = [{"status": "duplicate"}, {"status": "skipped"}, {"status": "invalid"}]
     assert main.main([str(tmp_path)]) == 0
+
+
+def test_main_falls_back_to_default_settings(tmp_path, fake_pipeline):
+    """Keys missing from the database use DEFAULT_SETTINGS, not other hard-coded numbers."""
+    _, scan = fake_pipeline
+    with patch("main.load_settings_from_db", return_value={}):
+        main.main([str(tmp_path)])
+    options = scan.call_args[0][1]
+    assert options.min_size == int(DEFAULT_SETTINGS["min_file_size"])
+    assert options.max_size == int(DEFAULT_SETTINGS["max_file_size"])
+    assert options.max_file_age_months == int(DEFAULT_SETTINGS["max_file_age_months"])
+    assert options.workers == int(DEFAULT_SETTINGS["workers"])
+
+
+def test_main_database_settings_override_defaults(tmp_path, fake_pipeline):
+    _, scan = fake_pipeline
+    with patch("main.load_settings_from_db", return_value={"min_file_size": "5"}):
+        main.main([str(tmp_path)])
+    assert scan.call_args[0][1].min_size == 5
