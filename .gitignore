@@ -7,3 +7,4 @@ profiler_logs*.txt
 venv/
 .pytest_cache/
 !samples/*.dcm
+!data/.gitkeep
