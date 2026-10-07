@@ -12,6 +12,7 @@ Optional:
 import os
 import json
 import hashlib
+from datetime import date
 from dataclasses import asdict
 
 import pytest
@@ -81,7 +82,7 @@ def write_dicom(folder, filename, *, patient_id="MRN001", patient_name="Doe^John
     ds.PatientBirthDate = "19900131"
     ds.PatientSex = "M"
     ds.StudyInstanceUID = study_uid or generate_uid()
-    ds.StudyDate = "20260115"
+    ds.StudyDate = date.today().strftime("%Y%m%d")  # always within the age limit
     ds.StudyTime = "134502"
     ds.StudyDescription = "Test study"
     ds.SeriesInstanceUID = series_uid or generate_uid()
@@ -280,3 +281,17 @@ def test_upgrade_drops_redundant_indexes_from_old_databases(db):
     with db.cursor() as cur:
         cur.execute("SELECT indexname FROM pg_indexes WHERE indexname = ANY(%s)", (list(REDUNDANT_INDEXES),))
         assert cur.fetchall() == []
+
+
+def test_old_scan_is_rejected_by_study_date_not_file_timestamp(db, tmp_path):
+    import pydicom
+    path = write_dicom(tmp_path, "old_scan.dcm")
+    ds = pydicom.dcmread(path)
+    ds.StudyDate = "20000101"
+    ds.save_as(path)  # the file on disk is brand new, the scan is from 2000
+
+    result = run(path, make_options(tmp_path, max_file_age_months=24))
+
+    assert result["status"] == "invalid"
+    assert "StudyDate=2000-01-01" in result["message"]
+    assert scalar(db, "SELECT count(*) FROM dicom_instances") == 0
