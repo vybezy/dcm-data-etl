@@ -22,7 +22,6 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 - [Project structure](#project-structure)
 - [Design decisions](#design-decisions)
 - [Security and privacy](#security-and-privacy)
-- [Roadmap](#roadmap)
 - [Author](#author)
 
 ---
