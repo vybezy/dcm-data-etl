@@ -242,7 +242,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_instances.image_position_patient IS '3D physical coordinates [x, y, z] of the slice relative to the patient coordinate system.';
         COMMENT ON COLUMN dicom_instances.rows IS 'Matrix row count (e.g., 512) from Tag (0028,0010).';
         COMMENT ON COLUMN dicom_instances.columns IS 'Matrix column count (e.g., 512) from Tag (0028,0011).';
-        COMMENT ON COLUMN dicom_instances.metadata_json IS 'Complete extracted DICOM header dictionary stored as a queryable JSONB document.';
+        COMMENT ON COLUMN dicom_instances.metadata_json IS 'Complete DICOM header (pixel data excluded) as JSONB keyed by tag, e.g. {"00080060": {"name": "Modality", "vr": "CS", "value": "CT"}}. Sequences are nested.';
         COMMENT ON COLUMN dicom_instances.created_at IS 'Timestamp of when the file was ingested into the database.';
         
         COMMENT ON INDEX idx_instances_series_id IS 'B-Tree Index: Optimizes foreign key joins to group all slices for a specific scan.';
@@ -272,10 +272,10 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON TABLE dicom_header IS 'Normalized key-value store for individual DICOM header tags per image instance.';
         COMMENT ON COLUMN dicom_header.header_id IS 'Surrogate primary key for the individual header tag record.';
         COMMENT ON COLUMN dicom_header.header_file_id IS 'Foreign key linking to the master DICOM file.';
-        COMMENT ON COLUMN dicom_header.header_tag IS 'Hexadecimal DICOM tag identifier in (GGGG,EEEE) format (e.g., (0008,0060) or (0020,0032)).';
+        COMMENT ON COLUMN dicom_header.header_tag IS 'DICOM tag as 8 uppercase hex digits GGGGEEEE (e.g., 00080060 for Modality), the same keys used in dicom_instances.metadata_json.';
         COMMENT ON COLUMN dicom_header.header_name IS 'Standardized DICOM keyword/element name (e.g., Modality, PatientName, SliceThickness).';
         COMMENT ON COLUMN dicom_header.header_vr IS 'DICOM Value Representation code defining data type (e.g., CS=Code String, DS=Decimal String, UI=UID).';
-        COMMENT ON COLUMN dicom_header.header_value IS 'The stringified value extracted from the DICOM element.';
+        COMMENT ON COLUMN dicom_header.header_value IS 'Text value of the element (max 1000 characters). Sequences are stored as JSON, binary data as <binary: N bytes>.';
         
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)

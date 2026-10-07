@@ -61,9 +61,46 @@ def test_clean_tag_value_multivalue_joined_with_backslash():
     assert clean_tag_value(ds.ImageType) == "ORIGINAL\\PRIMARY"
 
 
-def test_clean_tag_value_sequence():
-    seq = Sequence([Dataset()])
-    assert clean_tag_value(seq) == "[Sequence]"
+def test_clean_tag_value_sequence_is_stored_as_json():
+    item = Dataset()
+    item.add(DataElement((0x0008, 0x0100), "SH", "T-04000"))   # CodeValue
+    seq = Sequence([item])
+    assert json.loads(clean_tag_value(seq)) == [
+        {"00080100": {"name": "CodeValue", "vr": "SH", "value": "T-04000"}}
+    ]
+
+
+def test_clean_tag_value_binary_is_described_not_dumped():
+    assert clean_tag_value(b"\x00\x01\x02\x03", "OB") == "<binary: 4 bytes>"
+    assert clean_tag_value(b"abc") == "<binary: 3 bytes>"
+
+
+def test_clean_tag_value_strips_null_characters():
+    assert clean_tag_value("CT\x00\x00") == "CT"
+    assert "\x00" not in clean_tag_value("A\x00B")
+
+
+def test_metadata_json_keeps_nested_sequences():
+    item = Dataset()
+    item.add(DataElement((0x0008, 0x0100), "SH", "T-04000"))
+    ds = Dataset()
+    ds.add(DataElement((0x0008, 0x2218), "SQ", Sequence([item])))  # AnatomicRegionSequence
+
+    result = json.loads(build_metadata_json(ds))
+    region = result["00082218"]
+    assert region["vr"] == "SQ"
+    assert region["value"][0]["00080100"]["value"] == "T-04000"
+
+
+def test_header_rows_and_json_use_the_same_tag_format():
+    conn, _ = make_mock_conn()
+    ds = make_dataset()
+    with patch("extractor.psycopg2.extras.execute_values") as mock_execute:
+        extract_and_insert_headers(conn, ds, 1)
+
+    header_tags = {r[1] for r in mock_execute.call_args[0][2]}
+    json_tags = set(json.loads(build_metadata_json(ds)))
+    assert header_tags == json_tags
 
 
 # ------------------------- build_metadata_json -------------------------
@@ -91,8 +128,8 @@ def test_insert_headers_bulk_payload():
 
     assert "INSERT INTO dicom_header" in query
     assert "ON CONFLICT" in query
-    assert (99, "(0010,0010)", "PatientName", "PN", "Doe^John") in records
-    assert all(r[1] != "(7FE0,0010)" for r in records)  # pixel data skipped
+    assert (99, "00100010", "PatientName", "PN", "Doe^John") in records
+    assert all(r[1] != "7FE00010" for r in records)  # pixel data skipped
 
 
 def test_insert_headers_truncates_long_values():

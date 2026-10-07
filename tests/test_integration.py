@@ -159,7 +159,7 @@ def test_header_rows_match_dataset_tags(db, tmp_path):
     value = scalar(
         db,
         "SELECT header_value FROM dicom_header WHERE header_tag = %s",
-        ("(0010,0010)",),
+        ("00100010",),
     )
     assert value == "Doe^John"
 

@@ -11,19 +11,70 @@ from utils import Profiler
 # ------------------------- Metadata Extraction -------------------------
 
 
-def clean_tag_value(value):
+# Value Representations that hold raw bytes rather than text or numbers
+BINARY_VRS = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
+
+# Max characters stored per value in dicom_header (the JSONB column keeps everything)
+MAX_HEADER_VALUE_LENGTH = 1000
+
+
+def tag_key(tag) -> str:
     """
-    Cleans pydicom data so it is safe for PostgreSQL JSONB/Text storage.
+    One tag format everywhere: 8 uppercase hex digits, e.g. '00080060' for Modality.
+    This is the key format of the DICOM JSON Model (PS3.18 Annex F).
+    """
+    return f"{tag.group:04X}{tag.element:04X}"
+
+
+def _strip_nulls(text: str) -> str:
+    """PostgreSQL TEXT and JSONB reject the NUL character, which some scanners pad values with."""
+    return text.replace("\x00", "")
+
+
+def element_to_json(value, vr=None):
+    """
+    Converts a pydicom element value to a JSON-safe Python value:
+      - sequences (SQ) become a list of nested tag dictionaries, so no data is lost
+      - binary values become a short '<binary: N bytes>' description
+      - multi-values are joined with backslash, the DICOM separator
+      - everything else becomes text with NUL characters removed
     """
     if value is None:
         return ""
-    if isinstance(value, pydicom.multival.MultiValue):
-        return "\\".join([str(v) for v in value])
     if isinstance(value, pydicom.sequence.Sequence):
-        return "[Sequence]"
-    if isinstance(value, pydicom.valuerep.PersonName):
-        return str(value)
-    return str(value)
+        return [dataset_to_dict(item) for item in value]
+    if isinstance(value, (bytes, bytearray)) or vr in BINARY_VRS:
+        size = len(value) if hasattr(value, "__len__") else 0
+        return f"<binary: {size} bytes>"
+    if isinstance(value, pydicom.multival.MultiValue):
+        return _strip_nulls("\\".join(str(v) for v in value))
+    return _strip_nulls(str(value))
+
+
+def dataset_to_dict(dataset) -> dict:
+    """Every tag of a dataset (pixel data excluded) as {tag_key: {name, vr, value}}."""
+    result = {}
+    for elem in dataset:
+        if elem.tag.group == 0x7FE0:  # skip raw pixel data
+            continue
+        result[tag_key(elem.tag)] = {
+            "name": elem.keyword,
+            "vr": elem.VR,
+            "value": element_to_json(elem.value, elem.VR),
+        }
+    return result
+
+
+def clean_tag_value(value, vr=None) -> str:
+    """
+    Text form of a value for the dicom_header table.
+    Sequences are stored as their JSON structure.
+    """
+    converted = element_to_json(value, vr)
+    if isinstance(converted, list):
+        return json.dumps(converted)
+    return converted
+
 
 def parse_dicom_date(value):
     """
@@ -70,18 +121,8 @@ def parse_dicom_time(value):
 
 
 def build_metadata_json(dataset: pydicom.dataset.FileDataset) -> str:
-    """Serialize the entire DICOM header into a queryable JSON dictionary."""
-    metadata = {}
-    for elem in dataset:
-        if elem.tag.group == 0x7fe0:  # skip raw pixel data arrays
-            continue
-        tag_str = f"{elem.tag.group:04x}{elem.tag.element:04x}".upper()
-        metadata[tag_str] = {
-            "name": elem.keyword,
-            "vr": elem.VR,
-            "value": clean_tag_value(elem.value)
-        }
-    return json.dumps(metadata)
+    """Serialize the entire DICOM header, including nested sequences, into a queryable JSON dictionary."""
+    return json.dumps(dataset_to_dict(dataset))
 
 @Profiler
 def extract_and_upsert_patient(conn, dataset: pydicom.dataset.FileDataset, sha: str) -> int:
@@ -219,15 +260,14 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
         if elem.tag.group == 0x7fe0:  # Skip raw pixel data
             continue
         
-        tag_hex = f"({elem.tag.group:04X},{elem.tag.element:04X})"
         name = elem.keyword if elem.keyword else "Unknown"
         vr = elem.VR if elem.VR else "UN"
-        val_str = clean_tag_value(elem.value)
-        
-        if len(val_str) > 1000:
-            val_str = val_str[:997] + "..."
+        val_str = clean_tag_value(elem.value, vr)
 
-        header_records.append((file_id, tag_hex, name, vr, val_str))
+        if len(val_str) > MAX_HEADER_VALUE_LENGTH:
+            val_str = val_str[:MAX_HEADER_VALUE_LENGTH - 3] + "..."
+
+        header_records.append((file_id, tag_key(elem.tag), name, vr, val_str))
 
     if header_records:
         with conn.cursor() as cur:
