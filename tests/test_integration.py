@@ -103,7 +103,6 @@ def make_options(folder, **overrides):
         base_folder=os.path.realpath(str(folder)),
         min_size=1,
         max_size=50 * 1024 * 1024,
-        subject_min_length=3,
         max_file_age_months=24,
         workers=0,
         session_id=None,

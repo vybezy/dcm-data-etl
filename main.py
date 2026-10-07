@@ -107,11 +107,9 @@ def main(argv=None) -> int:
         base_folder=base_folder,
         min_size=int(settings["min_file_size"]),
         max_size=int(settings["max_file_size"]),
-        subject_min_length=int(settings["subject_min_length"]),
         max_file_age_months=int(settings["max_file_age_months"]),
         workers=workers,
         dry_run=args.dry_run,
-        safe_dicom_folder=settings["safe_dicom_folder"],
         session_id=session_id,
     )
 
