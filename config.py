@@ -12,12 +12,17 @@ DEFAULT_SETTINGS = {
     "max_file_size": str(99 * 1024 * 1024),     # 99 MB
     "max_file_age_months": "1200",              # 100 years
     "workers": "4",                             # 0 = sequential
+    "store_pixel_data": "true",                 # copy the raw pixel bytes into dicom_pixel_data
 }
+
+def is_true(value) -> bool:
+    """true for 1, true or yes (any case). used for flags stored as text."""
+    return str(value or "").strip().lower() in ("1", "true", "yes")
 
 def env_flag(name: str) -> bool:
     """true when an environment variable (or a line in .env) is set to 1, true or yes."""
     load_dotenv()
-    return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
+    return is_true(os.getenv(name))
 
 
 def config():

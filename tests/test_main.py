@@ -140,3 +140,16 @@ def test_reset_flag_wins_even_when_env_flag_is_false(tmp_path, fake_pipeline, mo
     db_init, _ = fake_pipeline
     main.main([str(tmp_path), "--reset"])
     assert db_init.call_args.kwargs["reset_tables"] is True
+
+
+def test_main_stores_pixel_data_by_default(tmp_path, fake_pipeline):
+    _, scan = fake_pipeline
+    main.main([str(tmp_path)])
+    assert scan.call_args[0][1].store_pixel_data is True
+
+
+def test_main_store_pixel_data_can_be_turned_off_in_settings(tmp_path, fake_pipeline):
+    _, scan = fake_pipeline
+    with patch("main.load_settings_from_db", return_value={"store_pixel_data": "false"}):
+        main.main([str(tmp_path)])
+    assert scan.call_args[0][1].store_pixel_data is False

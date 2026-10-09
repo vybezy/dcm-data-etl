@@ -27,6 +27,7 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_logger_session CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_settings CASCADE;")
+        cur.execute("DROP TABLE IF EXISTS dicom_pixel_data CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_header CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_instances CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_series CASCADE;")
@@ -270,6 +271,50 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_header.header_value IS 'Text value of the element (max 1000 characters). Sequences are stored as JSON, binary data as <binary: N bytes>.';
 
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
+    """)
+
+
+    # pixel data (kept apart so metadata queries never read the large bytes)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dicom_pixel_data (
+            file_id INTEGER PRIMARY KEY,
+            transfer_syntax_uid VARCHAR(64),
+            rows INTEGER NOT NULL,
+            columns INTEGER NOT NULL,
+            number_of_frames INTEGER NOT NULL DEFAULT 1,
+            samples_per_pixel SMALLINT,
+            bits_allocated SMALLINT,
+            bits_stored SMALLINT,
+            pixel_representation SMALLINT,
+            photometric_interpretation VARCHAR(16),
+            rescale_slope FLOAT8,
+            rescale_intercept FLOAT8,
+            pixel_data_size_bytes BIGINT NOT NULL,
+            pixel_sha256 VARCHAR(64) NOT NULL,
+            pixel_data BYTEA NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT fk_dicom_pixel_data_file_id FOREIGN KEY(file_id)
+                REFERENCES dicom_instances(file_id) ON DELETE CASCADE
+        );
+
+        COMMENT ON TABLE dicom_pixel_data IS 'Raw image bytes of each instance (Tag 7FE0,0010) plus everything needed to rebuild the image. One row per dicom_instances row.';
+        COMMENT ON COLUMN dicom_pixel_data.file_id IS 'Primary key and foreign key to dicom_instances; deleting the instance deletes its pixels.';
+        COMMENT ON COLUMN dicom_pixel_data.transfer_syntax_uid IS 'Encoding of pixel_data from Tag (0002,0010), e.g. 1.2.840.10008.1.2.1 = uncompressed little endian. Compressed syntaxes (JPEG etc.) are stored still encapsulated.';
+        COMMENT ON COLUMN dicom_pixel_data.rows IS 'Image height in pixels, Tag (0028,0010).';
+        COMMENT ON COLUMN dicom_pixel_data.columns IS 'Image width in pixels, Tag (0028,0011).';
+        COMMENT ON COLUMN dicom_pixel_data.number_of_frames IS 'Frames in the pixel data, Tag (0028,0008); 1 for a normal CT slice.';
+        COMMENT ON COLUMN dicom_pixel_data.samples_per_pixel IS 'Channels per pixel, Tag (0028,0002): 1 = grayscale, 3 = colour.';
+        COMMENT ON COLUMN dicom_pixel_data.bits_allocated IS 'Bits used to store one sample, Tag (0028,0100), usually 16 for CT.';
+        COMMENT ON COLUMN dicom_pixel_data.bits_stored IS 'Bits actually holding data, Tag (0028,0101), e.g. 12.';
+        COMMENT ON COLUMN dicom_pixel_data.pixel_representation IS 'Tag (0028,0103): 0 = unsigned, 1 = signed integers.';
+        COMMENT ON COLUMN dicom_pixel_data.photometric_interpretation IS 'How to display the values, Tag (0028,0004), e.g. MONOCHROME2.';
+        COMMENT ON COLUMN dicom_pixel_data.rescale_slope IS 'Tag (0028,1053). Hounsfield units = stored value * slope + intercept.';
+        COMMENT ON COLUMN dicom_pixel_data.rescale_intercept IS 'Tag (0028,1052), e.g. -1024 for CT.';
+        COMMENT ON COLUMN dicom_pixel_data.pixel_data_size_bytes IS 'Length of pixel_data in bytes (512 x 512 x 2 = 524288 for a typical CT slice).';
+        COMMENT ON COLUMN dicom_pixel_data.pixel_sha256 IS 'SHA-256 of pixel_data, to verify the stored bytes were not corrupted.';
+        COMMENT ON COLUMN dicom_pixel_data.pixel_data IS 'Raw pixel bytes exactly as in the file. Postgres moves large values out of the row automatically (TOAST).';
+        COMMENT ON COLUMN dicom_pixel_data.created_at IS 'Timestamp of when the pixels were stored.';
     """)
 
 

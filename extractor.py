@@ -1,7 +1,8 @@
 """
-turns a DICOM header into database rows: patient -> study -> series -> instance -> tags.
+turns a DICOM file into database rows: patient -> study -> series -> instance -> tags (+ pixel data).
 """
 import json
+import hashlib
 from datetime import datetime
 import pydicom
 import psycopg2.extras
@@ -284,6 +285,73 @@ def extract_and_insert_headers(conn, dataset: pydicom.dataset.FileDataset, file_
                 page_size=1000
             )
 
+
+def _to_int(value):
+    """int(value), or None when the tag is missing or not a number."""
+    try:
+        return int(value) if value is not None and value != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value):
+    """float(value), or None when the tag is missing or not a number."""
+    try:
+        return float(value) if value is not None and value != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+@Profiler
+def extract_and_insert_pixel_data(conn, dataset: pydicom.dataset.FileDataset, file_id: int) -> bool:
+    """
+    stores the raw pixel bytes (Tag 7FE0,0010) in dicom_pixel_data, exactly as they are in the file,
+    together with the tags needed to turn them back into an image.
+    returns False when the dataset has no pixel data (e.g. it was read with stop_before_pixels).
+    """
+    elem = dataset.get((0x7FE0, 0x0010))
+    if elem is None or elem.value is None:
+        return False
+
+    pixel_bytes = bytes(elem.value)
+
+    rows = _to_int(dataset.get("Rows"))
+    cols = _to_int(dataset.get("Columns"))
+    if rows is None or cols is None:
+        # bytes without dimensions can never be turned back into an image
+        raise ValueError("Pixel data present but Rows/Columns missing")
+
+    file_meta = getattr(dataset, "file_meta", None)
+    transfer_syntax = str(file_meta.get("TransferSyntaxUID", "")) if file_meta else ""
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO dicom_pixel_data (
+                file_id, transfer_syntax_uid, rows, columns, number_of_frames,
+                samples_per_pixel, bits_allocated, bits_stored, pixel_representation,
+                photometric_interpretation, rescale_slope, rescale_intercept,
+                pixel_data_size_bytes, pixel_sha256, pixel_data
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+        """, (
+            file_id,
+            transfer_syntax or None,
+            rows,
+            cols,
+            _to_int(dataset.get("NumberOfFrames")) or 1,
+            _to_int(dataset.get("SamplesPerPixel")),
+            _to_int(dataset.get("BitsAllocated")),
+            _to_int(dataset.get("BitsStored")),
+            _to_int(dataset.get("PixelRepresentation")),
+            str(dataset.get("PhotometricInterpretation", "")) or None,
+            _to_float(dataset.get("RescaleSlope")),
+            _to_float(dataset.get("RescaleIntercept")),
+            len(pixel_bytes),
+            hashlib.sha256(pixel_bytes).hexdigest(),
+            pixel_bytes,
+        ))
+    return True
+
 def process_dicom_file(conn, dataset: pydicom.dataset.FileDataset, abs_path: str,
                        filename: str, sha: str, file_size: int) -> int:
     """
@@ -301,5 +369,8 @@ def process_dicom_file(conn, dataset: pydicom.dataset.FileDataset, abs_path: str
     file_id = extract_and_insert_file(conn, dataset, series_id, filename, abs_path, sha, file_size)
 
     extract_and_insert_headers(conn, dataset, file_id)
+
+    # only stores something when the file was read with its pixels (store_pixel_data setting)
+    extract_and_insert_pixel_data(conn, dataset, file_id)
 
     return file_id

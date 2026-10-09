@@ -11,6 +11,7 @@ from extractor import (
     extract_and_upsert_patient,
     extract_and_upsert_study,
     extract_and_insert_headers,
+    extract_and_insert_pixel_data,
     parse_dicom_date,
     parse_dicom_time,
 )
@@ -279,3 +280,82 @@ def test_process_dicom_file_propagates_errors_without_logging():
             process_dicom_file(conn, Dataset(), "x.dcm", "x.dcm", "abc", 10)
 
     assert not log.method_calls
+
+
+# ------------------------- extract_and_insert_pixel_data -------------------------
+
+
+def make_image_dataset(pixel_bytes=b"\x01\x00\x02\x00\x03\x00\x04\x00"):
+    """a 2x2 16-bit CT-like image with the tags needed to rebuild it."""
+    from pydicom.dataset import FileMetaDataset
+    from pydicom.uid import ExplicitVRLittleEndian
+
+    ds = Dataset()
+    ds.file_meta = FileMetaDataset()
+    ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    ds.Rows = 2
+    ds.Columns = 2
+    ds.SamplesPerPixel = 1
+    ds.BitsAllocated = 16
+    ds.BitsStored = 12
+    ds.PixelRepresentation = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.RescaleSlope = "1"
+    ds.RescaleIntercept = "-1024"
+    ds.add(DataElement((0x7FE0, 0x0010), "OW", pixel_bytes))
+    return ds
+
+
+def test_pixel_data_is_stored_with_the_tags_to_rebuild_it():
+    import hashlib
+    pixels = b"\x01\x00\x02\x00\x03\x00\x04\x00"
+    conn, cur = make_mock_conn()
+
+    assert extract_and_insert_pixel_data(conn, make_image_dataset(pixels), 7) is True
+
+    params = cur.execute.call_args[0][1]
+    assert params[0] == 7                              # file_id
+    assert params[1] == "1.2.840.10008.1.2.1"          # transfer syntax
+    assert params[2:5] == (2, 2, 1)                    # rows, columns, frames
+    assert params[5:9] == (1, 16, 12, 1)               # samples, bits allocated/stored, signed
+    assert params[9] == "MONOCHROME2"
+    assert params[10:12] == (1.0, -1024.0)             # rescale slope, intercept
+    assert params[12] == len(pixels)
+    assert params[13] == hashlib.sha256(pixels).hexdigest()
+    assert params[14] == pixels                        # bytes stored unchanged
+
+
+def test_pixel_data_skipped_when_dataset_has_none():
+    """a header read with stop_before_pixels has no pixel data: nothing is inserted."""
+    ds = make_image_dataset()
+    del ds[0x7FE0, 0x0010]
+    conn, cur = make_mock_conn()
+
+    assert extract_and_insert_pixel_data(conn, ds, 7) is False
+    cur.execute.assert_not_called()
+
+
+def test_pixel_data_without_dimensions_is_an_error():
+    ds = make_image_dataset()
+    del ds.Rows
+    conn, _ = make_mock_conn()
+
+    with pytest.raises(ValueError, match="Rows/Columns"):
+        extract_and_insert_pixel_data(conn, ds, 7)
+
+
+def test_process_dicom_file_stores_pixel_data_in_same_transaction():
+    from extractor import process_dicom_file
+    conn, _ = make_mock_conn()
+    ds = make_image_dataset()
+
+    with patch("extractor.extract_and_upsert_patient", return_value=1), \
+         patch("extractor.extract_and_upsert_study", return_value=2), \
+         patch("extractor.extract_and_upsert_series", return_value=3), \
+         patch("extractor.extract_and_insert_file", return_value=4), \
+         patch("extractor.extract_and_insert_headers"), \
+         patch("extractor.extract_and_insert_pixel_data") as pixels:
+        assert process_dicom_file(conn, ds, "x.dcm", "x.dcm", "abc", 10) == 4
+
+    pixels.assert_called_once_with(conn, ds, 4)
+    conn.commit.assert_not_called()  # processor.py commits once, after everything
