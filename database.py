@@ -24,9 +24,6 @@ def db_connection():
     Commits if the block succeeds, rolls back if it raises, and always closes
     the connection, so no code path can leak one.
 
-        with db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(...)
     """
     conn = psycopg2.connect(**config())
     try:
@@ -40,11 +37,11 @@ def db_connection():
 
 
 def create_import_session() -> int:
-    """starts a new import session (one per run) and returns its id. stores the machine name and ip."""
+    """starts a new import session and returns its id. stores the machine name and ip."""
     hostname = socket.gethostname()
     try:
         ip = socket.gethostbyname(hostname)
-    except OSError:  # hostname can't be resolved (e.g. offline machine)
+    except OSError:  # hostname can't be resolved
         ip = "unknown"
     machineid = f"{hostname} ({ip})"
     with db_connection() as conn, conn.cursor() as cur:
@@ -62,7 +59,7 @@ def log_db_event(conn, options: ImportOptions, file_path: str, level: str, messa
     if not options.session_id:
         return
     frame = inspect.currentframe().f_back
-    caller_module = inspect.getmodule(frame)  # can be None (e.g. code run via exec)
+    caller_module = inspect.getmodule(frame)  # can be None
     module = caller_module.__name__ if caller_module else "unknown"
     funcname = frame.f_code.co_name
     lineno = frame.f_lineno
