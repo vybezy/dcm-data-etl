@@ -58,7 +58,9 @@ def test_main_missing_path_returns_2_and_touches_nothing(tmp_path, fake_pipeline
     scan.assert_not_called()
 
 
-def test_main_does_not_reset_tables_by_default(tmp_path, fake_pipeline):
+def test_main_does_not_reset_tables_by_default(tmp_path, fake_pipeline, monkeypatch):
+    monkeypatch.delenv("RESET_TABLES", raising=False)
+    monkeypatch.setattr("main.env_flag", lambda name: False)  # ignore a local .env
     db_init, _ = fake_pipeline
     assert main.main([str(tmp_path)]) == 0
     assert db_init.call_args.kwargs["reset_tables"] is False
@@ -116,3 +118,25 @@ def test_main_database_settings_override_defaults(tmp_path, fake_pipeline):
     with patch("main.load_settings_from_db", return_value={"min_file_size": "5"}):
         main.main([str(tmp_path)])
     assert scan.call_args[0][1].min_size == 5
+
+
+def test_main_does_not_reset_when_env_flag_is_false(tmp_path, fake_pipeline, monkeypatch):
+    monkeypatch.setenv("RESET_TABLES", "false")
+    db_init, _ = fake_pipeline
+    main.main([str(tmp_path)])
+    assert db_init.call_args.kwargs["reset_tables"] is False
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes"])
+def test_main_resets_when_env_flag_is_set(tmp_path, fake_pipeline, monkeypatch, value):
+    monkeypatch.setenv("RESET_TABLES", value)
+    db_init, _ = fake_pipeline
+    main.main([str(tmp_path)])
+    assert db_init.call_args.kwargs["reset_tables"] is True
+
+
+def test_reset_flag_wins_even_when_env_flag_is_false(tmp_path, fake_pipeline, monkeypatch):
+    monkeypatch.setenv("RESET_TABLES", "false")
+    db_init, _ = fake_pipeline
+    main.main([str(tmp_path), "--reset"])
+    assert db_init.call_args.kwargs["reset_tables"] is True
