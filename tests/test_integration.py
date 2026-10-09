@@ -61,8 +61,10 @@ def scalar(conn, sql, params=None):
 
 
 def write_dicom(folder, filename, *, patient_id="MRN001", patient_name="Doe^John",
-                study_uid=None, series_uid=None, sop_uid=None, instance_number=1):
-    """Writes a small but valid DICOM file (header only) and returns its path."""
+                study_uid=None, series_uid=None, sop_uid=None, instance_number=1,
+                pixels=False):
+    """Writes a small but valid DICOM file and returns its path.
+    header only, unless pixels=True adds a 4x4 signed 16-bit image."""
     sop_uid = sop_uid or generate_uid()
 
     meta = FileMetaDataset()
@@ -93,6 +95,18 @@ def write_dicom(folder, filename, *, patient_id="MRN001", patient_name="Doe^John
     ds.Columns = 4
     ds.PixelSpacing = [0.5, 0.5]
     ds.ImagePositionPatient = [0.0, 0.0, float(instance_number)]
+
+    if pixels:
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME2"
+        ds.BitsAllocated = 16
+        ds.BitsStored = 16
+        ds.HighBit = 15
+        ds.PixelRepresentation = 1
+        ds.RescaleSlope = "1"
+        ds.RescaleIntercept = "-1024"
+        # 16 values from -8 to 7, little endian, so the bytes are easy to check
+        ds.PixelData = b"".join(v.to_bytes(2, "little", signed=True) for v in range(-8, 8))
 
     ds.save_as(path)
     return path
@@ -148,7 +162,7 @@ def test_instance_stores_hash_and_queryable_json(db, tmp_path):
     md = md if isinstance(md, dict) else json.loads(md)
     assert md["00100010"]["name"] == "PatientName"
     assert md["00100010"]["value"] == "Doe^John"
-    assert "7FE00010" not in md  # pixel data never stored
+    assert "7FE00010" not in md  # pixel data lives in dicom_pixel_data, not in the JSON
 
 
 def test_header_rows_match_dataset_tags(db, tmp_path):
@@ -282,3 +296,48 @@ def test_old_scan_is_rejected_by_study_date_not_file_timestamp(db, tmp_path):
     assert result["status"] == "invalid"
     assert "StudyDate=2000-01-01" in result["message"]
     assert scalar(db, "SELECT count(*) FROM dicom_instances") == 0
+
+
+def test_pixel_data_is_stored_byte_for_byte(db, tmp_path):
+    import pydicom
+    path = write_dicom(tmp_path, "image.dcm", pixels=True)
+    original = pydicom.dcmread(path).PixelData
+
+    result = run(path, make_options(tmp_path))
+    assert result["status"] == "inserted"
+
+    with db.cursor() as cur:
+        cur.execute("""
+            SELECT rows, columns, bits_allocated, pixel_representation, rescale_intercept,
+                   transfer_syntax_uid, pixel_data_size_bytes, pixel_sha256, pixel_data
+            FROM dicom_pixel_data WHERE file_id = %s
+        """, (result["db_file_id"],))
+        rows, cols, bits, signed, intercept, syntax, size, sha, stored = cur.fetchone()
+
+    assert bytes(stored) == original
+    assert sha == hashlib.sha256(original).hexdigest()
+    assert (rows, cols, bits, signed, intercept, size) == (4, 4, 16, 1, -1024.0, 32)
+    assert syntax == "1.2.840.10008.1.2.1"
+
+    # pixel data is not copied into the header table either
+    assert scalar(db, "SELECT count(*) FROM dicom_header WHERE header_tag = '7FE00010'") == 0
+
+
+def test_pixel_data_not_stored_when_setting_is_off(db, tmp_path):
+    path = write_dicom(tmp_path, "image.dcm", pixels=True)
+
+    result = run(path, make_options(tmp_path, store_pixel_data=False))
+
+    assert result["status"] == "inserted"
+    assert scalar(db, "SELECT count(*) FROM dicom_pixel_data") == 0
+
+
+def test_deleting_an_instance_deletes_its_pixels(db, tmp_path):
+    path = write_dicom(tmp_path, "image.dcm", pixels=True)
+    run(path, make_options(tmp_path))
+
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM dicom_instances")
+    db.commit()
+
+    assert scalar(db, "SELECT count(*) FROM dicom_pixel_data") == 0

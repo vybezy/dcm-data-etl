@@ -34,6 +34,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. 4 workers import about 4× faster than sequential ([benchmark](#performance)). |
 | **Relational modelling** | Patient → Study → Series → Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
+| **Pixel data storage** | The raw image bytes of every file are stored unchanged in their own table, with a SHA-256 checksum and the tags needed to rebuild the image (dimensions, bit depth, rescale slope/intercept for Hounsfield units). Can be turned off with one setting. |
 | **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
 | **Duplicate prevention** | SHA-256 content hashing, and unique constraints on DICOM UIDs. |
@@ -76,6 +77,7 @@ erDiagram
     dicom_studies  ||--o{ dicom_series  : has
     dicom_series   ||--o{ dicom_instances : has
     dicom_instances ||--o{ dicom_header : has
+    dicom_instances ||--o| dicom_pixel_data : has
     dicom_logger_session ||--o{ dicom_logger : has
 
     dicom_patients {
@@ -128,9 +130,22 @@ erDiagram
         varchar(4) header_vr
         text header_value
     }
+    dicom_pixel_data {
+        int file_id PK, FK
+        varchar(64) transfer_syntax_uid
+        int rows
+        int columns
+        int number_of_frames
+        smallint bits_allocated
+        smallint pixel_representation
+        float8 rescale_slope
+        float8 rescale_intercept
+        varchar(64) pixel_sha256
+        bytea pixel_data
+    }
 ```
 
-`UK` marks columns with a `UNIQUE` constraint; `(header_file_id, header_tag)` is unique as a pair. Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
+`UK` marks columns with a `UNIQUE` constraint; `(header_file_id, header_tag)` is unique as a pair. `dicom_pixel_data` also stores samples per pixel, bits stored, photometric interpretation and the byte size (left out of the diagram for space). Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
 
 **Example queries**
 
@@ -152,6 +167,13 @@ SELECT i.file_name, h.header_value
 FROM dicom_header h
 JOIN dicom_instances i ON i.file_id = h.header_file_id
 WHERE h.header_tag = '00080060';
+
+-- Pixel bytes and the tags needed to rebuild one image
+SELECT i.file_name, p.rows, p.columns, p.bits_allocated, p.rescale_intercept,
+       p.pixel_data_size_bytes, p.pixel_data
+FROM dicom_pixel_data p
+JOIN dicom_instances i ON i.file_id = p.file_id
+WHERE i.instance_number = 1;
 
 -- Import errors for the latest session
 SELECT log_timestamp, log_level, log_dicomfile, log_message
@@ -258,6 +280,7 @@ Import behaviour is tunable at runtime through the `dicom_settings` table:
 | `max_file_size` | 99 MB | Larger files are rejected |
 | `max_file_age_months` | 1200 | Scans older than this are rejected, judged by the DICOM `StudyDate` (falling back to `SeriesDate`, `AcquisitionDate`, `ContentDate`), not by the file's timestamp on disk |
 | `workers` | 4 | Parallel worker processes (`0` = sequential) |
+| `store_pixel_data` | true | Store the raw pixel bytes in `dicom_pixel_data`. Set to `false` to import metadata only (about 512 KB less per CT slice) |
 
 To start from empty tables, run with `--reset` or set `RESET_TABLES=true` in `.env`; either one drops and recreates all pipeline tables before the import, so set it back to `false` afterwards.
 
@@ -275,8 +298,8 @@ Every file ends in exactly one status, summarized at the end of each run:
 2. **Filename and extension:** must end in `.dcm` and match the filename whitelist.
 3. **Size:** must be within the configured limits.
 4. **Hash and duplicate check:** compute SHA-256 and look it up in `dicom_instances`.
-5. **Header and scan date:** read the DICOM header once (pixel data skipped) and reject the file if its `StudyDate` is older than `max_file_age_months` or more than a day in the future. Files with no date at all are accepted with a warning. `--dry-run` stops after this step.
-6. **Extraction (one transaction):** upsert patient → study → series, insert the instance, then bulk-insert all header tags.
+5. **Header and scan date:** read the DICOM file once (pixel data included only when `store_pixel_data` is on and it is not a dry run) and reject the file if its `StudyDate` is older than `max_file_age_months` or more than a day in the future. Files with no date at all are accepted with a warning. `--dry-run` stops after this step.
+6. **Extraction (one transaction):** upsert patient → study → series, insert the instance, bulk-insert all header tags, then store the pixel data.
 7. **Commit or roll back:** success commits and logs `SUCCESS`. Any error rolls back the entire file, so no partial hierarchy is left behind.
 
 Each step logs to the console and, when a session exists, to `dicom_logger`.
@@ -287,7 +310,7 @@ Each step logs to the console and, when a session exists, to `dicom_logger`.
 
 Measured with [`benchmark.py`](benchmark.py): the 78 CT slices of the full sample series (about 40 MB) are imported from an empty database for each worker count, and each value is the median of 3 runs.
 
-Environment: Docker Desktop on Windows, 12 logical CPU cores visible to the container, Python 3.11, PostgreSQL 15 in a second container.
+Environment: Docker Desktop on Windows, 12 logical CPU cores visible to the container, Python 3.11, PostgreSQL 15 in a second container. These runs were measured before pixel data storage was added; set `store_pixel_data` to `false` to compare like for like.
 
 | Workers | Time (s) | Files/sec | Speed-up |
 |---|---|---|---|
@@ -335,7 +358,7 @@ All suites live in [`tests/`](tests/):
 | `test_profiler.py` | Profiler is off by default and falls back cleanly without `line_profiler` | No |
 | `test_azure.py` | Azure Blob download: skipped without a connection string, failures logged, existing files kept | No (mocked) |
 | `test_benchmark.py` | Benchmark maths (median, files/sec, speed-up), `.dcm` counting, stopping on a failed import | No (mocked) |
-| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import | Yes |
+| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import, pixel data stored byte for byte | Yes |
 
 ### Running the integration tests locally
 
@@ -391,6 +414,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 - **Upserts instead of check-then-insert.** `ON CONFLICT` on the DICOM UIDs makes the pipeline idempotent and safe under concurrent workers.
 - **No duplicate indexes.** PostgreSQL already builds an index for every `UNIQUE` constraint (patient MRN, study/series UIDs, SHA-256 hash, and `(header_file_id, header_tag)`), so the schema adds explicit indexes only on columns that are not already covered, such as foreign keys, modality, tag and the `JSONB` GIN index. This avoids paying for the same index twice on every insert.
 - **`JSONB` plus a per-tag table.** `JSONB` serves flexible whole-header queries, while `dicom_header` supports indexed relational lookups by tag.
+- **Pixel data in its own table.** At about 512 KB per CT slice, the image bytes are far larger than the metadata, so they live in `dicom_pixel_data` (one row per instance) and metadata queries never read them. They are stored exactly as in the file, so storage is lossless and works for compressed transfer syntaxes too. In production, images would usually go to object storage such as Azure Blob Storage, with only the reference kept in the database.
 - **Settings in the database.** Operators can tune limits and parallelism without rebuilding the image.
 - **Logs in the database.** Per-session, per-file event rows make an import auditable and queryable with plain SQL.
 
