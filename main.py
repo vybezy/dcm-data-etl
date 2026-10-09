@@ -17,7 +17,7 @@ import sys
 import glob
 import argparse
 
-from config import DEFAULT_SETTINGS, env_flag
+from config import DEFAULT_SETTINGS, env_flag, is_true
 from db_init import db_init
 from utils import ImportOptions, download_dicom_from_azure
 from database import create_import_session, load_settings_from_db
@@ -116,6 +116,7 @@ def main(argv=None) -> int:
         workers=workers,
         dry_run=args.dry_run,
         session_id=session_id,
+        store_pixel_data=is_true(settings["store_pixel_data"]),
     )
 
     logger.info("Session ID: %s", session_id)

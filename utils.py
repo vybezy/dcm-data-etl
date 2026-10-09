@@ -87,6 +87,7 @@ class ImportOptions:
     workers: int
     dry_run: bool = False
     session_id: Optional[int] = None
+    store_pixel_data: bool = True
 
 class ImportErrorWithContext(Exception):
     """raised when a file path is rejected (e.g. it points outside the base folder)."""

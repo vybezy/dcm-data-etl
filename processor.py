@@ -55,9 +55,12 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
 SCAN_DATE_TAGS = ("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate")
 
 
-def read_dicom_header(path: str):
-    """reads the DICOM header only (pixel data is skipped). Raises if the file is not valid DICOM."""
-    return pydicom.dcmread(path, stop_before_pixels=True)
+def read_dicom_header(path: str, with_pixels: bool = False):
+    """
+    reads the DICOM file. Pixel data is skipped unless with_pixels is True,
+    so validation stays fast. Raises if the file is not valid DICOM.
+    """
+    return pydicom.dcmread(path, stop_before_pixels=not with_pixels)
 
 
 def subtract_months(day: date, months: int) -> date:
@@ -171,9 +174,11 @@ def process_file(path: str, options_dict: dict):
                 result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
                 return result
 
-        # read the header once: used for the scan-date check and then for extraction
+        # read the file once: used for the scan-date check and then for extraction.
+        # pixels are only loaded when they will be stored (never in a dry run)
+        with_pixels = options.store_pixel_data and not options.dry_run
         try:
-            dataset = read_dicom_header(abs_path)
+            dataset = read_dicom_header(abs_path, with_pixels=with_pixels)
         except Exception as e:
             reason = f"Unreadable DICOM file: {type(e).__name__}: {e}"
             pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
