@@ -74,8 +74,6 @@ def write_dicom(folder, filename, *, patient_id="MRN001", patient_name="Doe^John
 
     path = os.path.join(str(folder), filename)
     ds = FileDataset(path, {}, file_meta=meta, preamble=b"\0" * 128)
-    ds.is_little_endian = True
-    ds.is_implicit_VR = False
 
     ds.SOPClassUID = CTImageStorage
     ds.SOPInstanceUID = sop_uid
