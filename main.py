@@ -8,6 +8,7 @@ Examples:
     python main.py ./data/instance-0155.dcm # single file
     python main.py ./data --dry-run         # validate only, insert nothing
     python main.py ./data --reset           # DROP and recreate all tables first
+                                            # (or set RESET_TABLES=true in .env)
 
 Exit codes: 0 = no errors, 1 = at least one file errored, 2 = bad input path.
 """
@@ -16,7 +17,7 @@ import sys
 import glob
 import argparse
 
-from config import DEFAULT_SETTINGS
+from config import DEFAULT_SETTINGS, env_flag
 from db_init import db_init
 from utils import ImportOptions, download_dicom_from_azure
 from database import create_import_session, load_settings_from_db
@@ -93,9 +94,11 @@ def main(argv=None) -> int:
         logger.error("Path not found or no files match: %s", args.path)
         return 2
 
-    if args.reset:
-        logger.warning("--reset given: dropping and recreating all pipeline tables")
-    db_init(reset_tables=args.reset, logger=logger)
+    # reset when asked on the command line or by RESET_TABLES=true in .env
+    reset = args.reset or env_flag("RESET_TABLES")
+    if reset:
+        logger.warning("reset requested: dropping and recreating all pipeline tables")
+    db_init(reset_tables=reset, logger=logger)
 
     session_id = create_import_session()
     settings = load_settings_from_db()

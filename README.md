@@ -259,6 +259,8 @@ Import behaviour is tunable at runtime through the `dicom_settings` table:
 | `max_file_age_months` | 1200 | Scans older than this are rejected, judged by the DICOM `StudyDate` (falling back to `SeriesDate`, `AcquisitionDate`, `ContentDate`), not by the file's timestamp on disk |
 | `workers` | 4 | Parallel worker processes (`0` = sequential) |
 
+To start from empty tables, run with `--reset` or set `RESET_TABLES=true` in `.env`; either one drops and recreates all pipeline tables before the import, so set it back to `false` afterwards.
+
 The defaults are defined once, in `DEFAULT_SETTINGS` in `config.py`. They are written to the table on first run and never overwrite a value you have changed.
 
 Every file ends in exactly one status, summarized at the end of each run:
@@ -367,7 +369,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── processor.py               # validation, hashing, dedupe, scan-date check, parallel orchestration
 ├── extractor.py               # DICOM value conversion and hierarchical upserts
 ├── database.py                # connection handling, sessions, DB event logging, settings
-├── db_init.py                 # schema creation, reset and clean-up of old schema objects
+├── db_init.py                 # schema creation and reset
 ├── config.py                  # database credentials from .env and DEFAULT_SETTINGS
 ├── logger.py                  # console and file logging, pretty_log
 ├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
@@ -403,7 +405,7 @@ DICOM files can contain protected health information (PHI), so the project treat
 - **Real patient data is out of scope as-is.** The pipeline does not de-identify files itself. Real patient data should be de-identified before import, or the database protected with encryption, access control and auditing appropriate to the applicable regulations (for example HIPAA or GDPR). This project makes no compliance claims.
 - **Secrets stay out of git.** Credentials live in a git-ignored `.env`; the repository only ships `.env.example` with local development values, and `.dockerignore` keeps `.env` out of the Docker image.
 - **Untrusted file paths are contained.** Every input path is resolved with `realpath` and must stay inside the base folder, so `..` tricks and symlinks cannot reach other files. Filenames are restricted to letters, digits, `_`, `-`, `.` and spaces.
-- **No SQL injection from file contents.** Every value read from a DICOM file or setting is passed with psycopg2 parameter binding. The only SQL built with string formatting is the clean-up of old index names, which are constants in `db_init.py`.
+- **No SQL injection from file contents.** Every value read from a DICOM file or setting is passed with psycopg2 parameter binding; the pipeline never builds SQL with string formatting.
 
 ---
 

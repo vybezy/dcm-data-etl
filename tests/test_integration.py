@@ -251,13 +251,16 @@ def test_parallel_import_with_process_pool(db, tmp_path):
     assert scalar(db, "SELECT count(*) FROM dicom_patients") == 6
 
 def test_schema_has_no_indexes_duplicating_unique_constraints(db):
-    from db_init import REDUNDANT_INDEXES
-
+    """UNIQUE constraints already create these indexes; a second copy only slows inserts."""
+    duplicate_index_names = (
+        "idx_patients_mrn", "idx_studies_uid", "idx_series_uid",
+        "idx_instances_sha256", "idx_dicom_headers_file",
+    )
     with db.cursor() as cur:
         cur.execute("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'")
         indexes = dict(cur.fetchall())
 
-    for name in REDUNDANT_INDEXES:
+    for name in duplicate_index_names:
         assert name not in indexes
 
     # every UNIQUE column is still covered by the index of its constraint
@@ -265,21 +268,6 @@ def test_schema_has_no_indexes_duplicating_unique_constraints(db):
     for column in ("medical_record_number", "study_instance_uid", "series_instance_uid",
                    "sop_instance_uid", "file_sha256_hash", "header_file_id, header_tag"):
         assert any(f"({column})" in d for d in unique_defs), column
-
-
-def test_upgrade_drops_redundant_indexes_from_old_databases(db):
-    from db_init import REDUNDANT_INDEXES
-
-    with db.cursor() as cur:  # simulate a database created by the old schema
-        cur.execute("CREATE INDEX idx_patients_mrn ON dicom_patients (medical_record_number)")
-        cur.execute("CREATE INDEX idx_dicom_headers_file ON dicom_header (header_file_id)")
-    db.commit()
-
-    db_init(reset_tables=False, logger=logger)
-
-    with db.cursor() as cur:
-        cur.execute("SELECT indexname FROM pg_indexes WHERE indexname = ANY(%s)", (list(REDUNDANT_INDEXES),))
-        assert cur.fetchall() == []
 
 
 def test_old_scan_is_rejected_by_study_date_not_file_timestamp(db, tmp_path):

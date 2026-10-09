@@ -6,14 +6,19 @@ from dotenv import load_dotenv
 
 
 # default import settings: the single source of truth.
-# db_init() seeds the dicom_settings table from this dict, and main.py falls back
-# to it if a key is missing. Values are strings because the table stores TEXT.
+# db_init() seeds the dicom_settings table from this dict, and main.py falls back to it if a key is missing. Values are strings because the table stores TEXT.
 DEFAULT_SETTINGS = {
     "min_file_size": str(100 * 1024),           # 100 KB
     "max_file_size": str(99 * 1024 * 1024),     # 99 MB
     "max_file_age_months": "1200",              # 100 years
     "workers": "4",                             # 0 = sequential
 }
+
+def env_flag(name: str) -> bool:
+    """true when an environment variable (or a line in .env) is set to 1, true or yes."""
+    load_dotenv()
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
+
 
 def config():
     """returns the database connection settings from the environment / .env file."""

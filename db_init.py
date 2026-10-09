@@ -6,24 +6,10 @@ from config import DEFAULT_SETTINGS
 from database import db_connection
 
 
-# settings that older versions seeded but no code ever read; see _create_schema().
-OBSOLETE_SETTINGS = ("subject_min_length", "safe_dicom_folder")
-
-# indexes that older versions created on top of UNIQUE constraints; see _create_schema().
-REDUNDANT_INDEXES = (
-    "idx_patients_mrn",
-    "idx_studies_uid",
-    "idx_series_uid",
-    "idx_instances_sha256",
-    "idx_dicom_headers_file",
-)
-
-
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
     """
     creates all pipeline tables (and drops them first if reset_tables=True).
     Runs in one transaction: if any statement fails, nothing is half-created,
-    and the connection is always closed.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -35,7 +21,7 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
 
 
 def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
-    """runs all the CREATE TABLE / INDEX statements, plus clean-up of older schema objects."""
+    """runs all the CREATE TABLE / INDEX statements and seeds the default settings."""
     if reset_tables:
         logger.info("Resetting database tables...")
         cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
@@ -286,16 +272,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)
 
-
-    # remove indexes created by earlier versions of this schema. Each one
-    # duplicated an index PostgreSQL already builds for a UNIQUE constraint
-    # (the composite UNIQUE(header_file_id, header_tag) also covers lookups on
-    # header_file_id alone). Harmless no-op on a fresh database.
-    for redundant_index in REDUNDANT_INDEXES:
-        cur.execute(f"DROP INDEX IF EXISTS {redundant_index};")
-
-    # remove settings left over from earlier versions of this pipeline
-    cur.execute("DELETE FROM dicom_settings WHERE key = ANY(%s);", (list(OBSOLETE_SETTINGS),))
 
     # default settings: inserted on every run, but ON CONFLICT keeps any value
     # an operator has already changed, so tuned settings survive restarts.
