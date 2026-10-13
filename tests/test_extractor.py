@@ -316,13 +316,13 @@ def test_pixel_data_is_stored_with_the_tags_to_rebuild_it():
     params = cur.execute.call_args[0][1]
     assert params[0] == 7                              # file_id
     assert params[1] == "1.2.840.10008.1.2.1"          # transfer syntax
-    assert params[2:5] == (2, 2, 1)                    # rows, columns, frames
-    assert params[5:9] == (1, 16, 12, 1)               # samples, bits allocated/stored, signed
-    assert params[9] == "MONOCHROME2"
-    assert params[10:12] == (1.0, -1024.0)             # rescale slope, intercept
-    assert params[12] == len(pixels)
-    assert params[13] == hashlib.sha256(pixels).hexdigest()
-    assert params[14] == pixels                        # bytes stored unchanged
+    assert params[2] == 1                              # frames
+    assert params[3:7] == (1, 16, 12, 1)               # samples, bits allocated/stored, signed
+    assert params[7] == "MONOCHROME2"
+    assert params[8:10] == (1.0, -1024.0)              # rescale slope, intercept
+    assert params[10] == len(pixels)
+    assert params[11] == hashlib.sha256(pixels).hexdigest()
+    assert params[12] == pixels                        # bytes stored unchanged
 
 
 def test_pixel_data_skipped_when_dataset_has_none():

@@ -306,9 +306,12 @@ def test_pixel_data_is_stored_byte_for_byte(db, tmp_path):
 
     with db.cursor() as cur:
         cur.execute("""
-            SELECT rows, columns, bits_allocated, pixel_representation, rescale_intercept,
-                   transfer_syntax_uid, pixel_data_size_bytes, pixel_sha256, pixel_data
-            FROM dicom_pixel_data WHERE file_id = %s
+            SELECT i.rows, i.columns, p.bits_allocated, p.pixel_representation,
+                   p.rescale_intercept, p.transfer_syntax_uid, p.pixel_data_size_bytes,
+                   p.pixel_sha256, p.pixel_data
+            FROM dicom_pixel_data p
+            JOIN dicom_instances i ON i.file_id = p.file_id
+            WHERE p.file_id = %s
         """, (result["db_file_id"],))
         rows, cols, bits, signed, intercept, syntax, size, sha, stored = cur.fetchone()
 
