@@ -42,7 +42,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 | **Structured logging** | Console and critical-file logging, plus per-session, per-file event rows in PostgreSQL (module, function, line, process, thread, exception type, stack trace). |
 | **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no redeploy is needed to tune them. |
 | **Cloud ingestion** | Optionally downloads `.dcm` files from Azure Blob Storage before processing. |
-| **Profiling** | Opt-in `@Profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
+| **Profiling** | Opt-in `@profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
 | **Containerized** | Docker Compose runs PostgreSQL 15 with a health check, and the pipeline starts only once the database is ready. The pipeline image is a multi-stage build (no compiler in the final image) and runs as a non-root user. |
 
 ---
@@ -395,7 +395,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── db_init.py                 # schema creation and reset
 ├── config.py                  # database credentials from .env and DEFAULT_SETTINGS
 ├── logger.py                  # console and file logging, pretty_log
-├── utils.py                   # ImportOptions, Profiler, exception handler, Azure download
+├── utils.py                   # ImportOptions, profiler, exception handler, Azure download
 ├── benchmark.py               # import speed for different worker counts
 ├── .env.example               # template for .env
 ├── .dockerignore              # keeps .env and data out of the Docker image
