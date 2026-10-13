@@ -2,38 +2,41 @@
 database credentials from .env and the default import settings.
 """
 import os
+
 from dotenv import load_dotenv
 
-
-# default import settings: the single source of truth.
-# db_init() seeds the dicom_settings table from this dict, and main.py falls back to it if a key is missing. Values are strings because the table stores TEXT.
 DEFAULT_SETTINGS = {
     "min_file_size": str(100 * 1024),           # 100 KB
     "max_file_size": str(99 * 1024 * 1024),     # 99 MB
     "max_file_age_months": "1200",              # 100 years
     "workers": "4",                             # 0 = sequential
-    "store_pixel_data": "true",                 # copy the raw pixel bytes into dicom_pixel_data
+    "store_pixel_data": "true",                 # pixels -> dicom_pixel_data
 }
+
 
 def is_true(value) -> bool:
     """true for 1, true or yes (any case). used for flags stored as text."""
     return str(value or "").strip().lower() in ("1", "true", "yes")
 
+
 def env_flag(name: str) -> bool:
-    """true when an environment variable (or a line in .env) is set to 1, true or yes."""
+    """true when an environment variable is set to 1, true or yes."""
     load_dotenv()
     return is_true(os.getenv(name))
 
 
 def config():
-    """returns the database connection settings from the environment / .env file."""
+    """
+    returns the db connection settings
+    from the environment / .env file.
+    """
     load_dotenv()
 
     db = {
-        'host': os.getenv('DB_HOST'),
-        'database': os.getenv('DB_NAME'),
-        'user': os.getenv('DB_USER'),
-        'password': os.getenv('DB_PASSWORD')
+        "host": os.getenv("DB_HOST"),
+        "database": os.getenv("DB_NAME"),
+        "user": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASSWORD"),
     }
 
     # missing .env file / misspelled variable safety check
@@ -43,7 +46,6 @@ def config():
             "with DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD defined."
         )
 
-    # optional: defaults to the standard PostgreSQL port
-    db['port'] = os.getenv('DB_PORT', '5432')
+    db["port"] = os.getenv("DB_PORT", "5432")
 
     return db
