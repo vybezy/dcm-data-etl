@@ -10,9 +10,6 @@ from logger import logger
 from utils import Profiler
 
 
-# ------------------------- Metadata Extraction -------------------------
-
-
 # value Representations that hold raw bytes rather than text or numbers
 BINARY_VRS = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 
@@ -327,17 +324,15 @@ def extract_and_insert_pixel_data(conn, dataset: pydicom.dataset.FileDataset, fi
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO dicom_pixel_data (
-                file_id, transfer_syntax_uid, rows, columns, number_of_frames,
+                file_id, transfer_syntax_uid, number_of_frames,
                 samples_per_pixel, bits_allocated, bits_stored, pixel_representation,
                 photometric_interpretation, rescale_slope, rescale_intercept,
                 pixel_data_size_bytes, pixel_sha256, pixel_data
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """, (
             file_id,
             transfer_syntax or None,
-            rows,
-            cols,
             _to_int(dataset.get("NumberOfFrames")) or 1,
             _to_int(dataset.get("SamplesPerPixel")),
             _to_int(dataset.get("BitsAllocated")),
