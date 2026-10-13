@@ -1,20 +1,19 @@
 """
 shared helpers: import options, the profiler, the exception handler and the azure download.
 """
-import io
-import sys
-import os
 import inspect
+import io
+import os
+import sys
 import traceback
-from logger import pretty_log, logger
-from functools import wraps
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from functools import wraps
 from typing import Optional
+
 from azure.storage.blob import BlobServiceClient
 
-
-# ------------------------- Profiler -------------------------
+from logger import logger, pretty_log
 
 
 PROFILE_ENV_VAR = "DICOM_PROFILE"
@@ -25,26 +24,28 @@ def profiling_enabled() -> bool:
     return os.getenv(PROFILE_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
 
 
-def Profiler(func):
+def profiler(func):
     """
     opt-in line-by-line profiler (requires line_profiler).
 
     Disabled by default: the decorator then returns the original function
-    unchanged, so production imports pay zero overhead. When DICOM_PROFILE=1,
-    each call appends its line timings to profiler_logs_<pid>.txt - one file
-    per process, so parallel workers never interleave their output.
+    unchanged, so production imports pay zero overhead.
+    When DICOM_PROFILE=1, each call appends its line timings to profiler_logs_<pid>.txt -
+    one file per process, so parallel workers never interleave their output.
     """
     if not profiling_enabled():
         return func
 
     try:
         from line_profiler import LineProfiler
+
     except ImportError:
         logger.warning(
             "%s is set but line_profiler is not installed (pip install line_profiler); "
             "%s will run without profiling.", PROFILE_ENV_VAR, func.__name__
         )
         return func
+
 
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -54,6 +55,7 @@ def Profiler(func):
         lp.enable()
         try:
             return func(*args, **kwargs)
+
         finally:
             # runs even if func raises, so failed calls are profiled too
             lp.disable()
@@ -76,7 +78,7 @@ def Profiler(func):
 # ------------------------- Error Handling -------------------------
 
 
-@dataclass  # generates the constructor from the fields below
+@dataclass
 class ImportOptions:
     """settings for one import run, passed to every worker."""
 
@@ -89,10 +91,17 @@ class ImportOptions:
     session_id: Optional[int] = None
     store_pixel_data: bool = True
 
+
 class ImportErrorWithContext(Exception):
     """raised when a file path is rejected (e.g. it points outside the base folder)."""
 
-def handle_exception(e: Exception, options: ImportOptions = None, file_path: str = None, level: str = "CRITICAL"):
+
+def handle_exception(
+        e: Exception,
+        options: ImportOptions = None,
+        file_path: str = None,
+        level: str = "CRITICAL"
+):
     """
     logs an unexpected exception to the console, the critical log file and,
     when there is an import session, the dicom_logger table. never raises itself.
@@ -103,11 +112,13 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
 
         # find where the exception happened (last frame of the traceback)
         tb = sys.exc_info()[2]
+
         if tb:
             last_frame = traceback.extract_tb(tb)[-1]
             filename = last_frame.filename
             lineno = last_frame.lineno
             funcname = last_frame.name
+
         else:
             # no traceback available, so use the caller instead
             caller = inspect.currentframe().f_back
@@ -122,13 +133,14 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
         pretty_log(level, f"{exc_type}: {e}", file=file_path, extra=f"{filename}:{lineno}")
         logger.exception(message)  # writes the full traceback to the log handlers
 
-        # database logging (only when there is an import session)
+        # database logging
         session_id = getattr(options, "session_id", None) if options is not None else None
         if session_id:
             try:
                 from database import db_connection, log_db_event  # local import prevents circular dependency
                 with db_connection() as connection:
                     log_db_event(connection, options, file_path or "", level, message, exc=e)
+
             except Exception as db_e:
                 # the handler must never fail, so fall back to the local logger
                 logger.error("Failed to log exception to DB: %s", db_e)
@@ -137,9 +149,6 @@ def handle_exception(e: Exception, options: ImportOptions = None, file_path: str
         # if the handler itself breaks, write to the local logger
         logger.critical("Exception inside handle_exception(): %s", handler_err)
         logger.critical("Original exception was: %s", e)
-
-
-# ------------------------------ Azure ------------------------------
 
 
 def download_dicom_from_azure(download_dir: str = "/data") -> str:
@@ -164,12 +173,18 @@ def download_dicom_from_azure(download_dir: str = "/data") -> str:
             dest_path = os.path.join(download_dir, os.path.basename(blob.name))
             if not os.path.exists(dest_path):
                 logger.info("Downloading %s from Azure Blob Storage...", blob.name)
+
                 with open(dest_path, "wb") as f:
                     f.write(container_client.download_blob(blob.name).readall())
+
                 downloaded += 1
 
         logger.info("Azure download complete: %d new file(s) retrieved.", downloaded)
+
     except Exception as e:
-        logger.warning("Azure download failed: %s. Falling back to existing directory contents.", e)
+        logger.warning(
+            "Azure download failed: %s. "
+            "Falling back to existing directory contents.", e
+        )
 
     return download_dir

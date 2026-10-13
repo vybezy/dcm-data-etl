@@ -12,7 +12,7 @@ from pydicom.dataset import Dataset
 from pydicom.multival import MultiValue
 
 from logger import logger
-from utils import Profiler
+from utils import profiler
 
 
 # value Representations that hold raw bytes rather than text or numbers
@@ -157,7 +157,7 @@ def build_metadata_json(dataset: Dataset) -> str:
     return json.dumps(dataset_to_dict(dataset))
 
 
-@Profiler
+@profiler
 def extract_and_upsert_patient(conn, dataset: Dataset, sha: str) -> int:
     """
     extracts patient demographics and returns the patient_id.
@@ -178,7 +178,7 @@ def extract_and_upsert_patient(conn, dataset: Dataset, sha: str) -> int:
         return cur.fetchone()[0]
 
 
-@Profiler
+@profiler
 def extract_and_upsert_study(conn, dataset: Dataset, patient_id: int) -> int:
     """
     extracts the clinical study/exam details
@@ -215,7 +215,7 @@ def extract_and_upsert_study(conn, dataset: Dataset, patient_id: int) -> int:
         return cur.fetchone()[0]
 
 
-@Profiler
+@profiler
 def extract_and_upsert_series(conn, dataset: Dataset, study_id: int) -> int:
     """
     extracts the scanner protocol data
@@ -268,7 +268,7 @@ def extract_and_upsert_series(conn, dataset: Dataset, study_id: int) -> int:
         return cur.fetchone()[0]
 
 
-@Profiler
+@profiler
 def extract_and_insert_file(
         conn,
         dataset: Dataset,
@@ -329,7 +329,7 @@ def extract_and_insert_file(
         return cur.fetchone()[0]
 
 
-@Profiler
+@profiler
 def extract_and_insert_headers(conn, dataset: Dataset, file_id: int):
     """
     extracts all individual DICOM tags and
@@ -383,7 +383,7 @@ def _to_float(value):
         return None
 
 
-@Profiler
+@profiler
 def extract_and_insert_pixel_data(
         conn,
         dataset: Dataset,

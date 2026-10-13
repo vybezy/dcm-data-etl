@@ -11,7 +11,7 @@ def test_profiling_disabled_by_default(monkeypatch):
     monkeypatch.delenv("DICOM_PROFILE", raising=False)
     assert utils.profiling_enabled() is False
     # decorator returns the exact same function object: zero overhead
-    assert utils.Profiler(_sample) is _sample
+    assert utils.profiler(_sample) is _sample
 
 
 def test_profiling_enabled_values(monkeypatch):
@@ -33,6 +33,6 @@ def test_profiling_without_line_profiler_falls_back(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    wrapped = utils.Profiler(_sample)
+    wrapped = utils.profiler(_sample)
     assert wrapped is _sample
     assert wrapped(21) == 42

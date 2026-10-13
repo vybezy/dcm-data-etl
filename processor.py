@@ -20,7 +20,7 @@ from logger import logger, pretty_log
 from utils import (
     ImportErrorWithContext,
     ImportOptions,
-    Profiler,
+    profiler,
     handle_exception,
 )
 
@@ -145,7 +145,7 @@ def compute_sha256(path: str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-@Profiler
+@profiler
 def process_file(path: str, options_dict: dict):
     """
     runs every check on one file and imports it.
