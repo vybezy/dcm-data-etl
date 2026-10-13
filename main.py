@@ -12,25 +12,26 @@ Examples:
 
 Exit codes: 0 = no errors, 1 = at least one file errored, 2 = bad input path.
 """
+import argparse
+import glob
 import os
 import sys
-import glob
-import argparse
 
 from config import DEFAULT_SETTINGS, env_flag, is_true
-from db_init import db_init
-from utils import ImportOptions, download_dicom_from_azure
 from database import create_import_session, load_settings_from_db
-from processor import scan_and_import
+from db_init import db_init
 from logger import logger
-
+from processor import scan_and_import
+from utils import ImportOptions, download_dicom_from_azure
 
 DOCKER_DATA_DIR = "/data"
 LOCAL_DATA_DIR = "./data"
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    """reads the command-line options (see the examples at the top of this file)."""
+    """
+    reads command-line options (see examples at the top of file).
+    """
     default_path = DOCKER_DATA_DIR if os.path.isdir(DOCKER_DATA_DIR) else LOCAL_DATA_DIR
 
     parser = argparse.ArgumentParser(
@@ -68,8 +69,10 @@ def resolve_input(target_path: str):
     """
     if "*" in target_path or "?" in target_path:
         file_list = sorted(f for f in glob.glob(target_path) if os.path.isfile(f))
+
         if not file_list:
             return None, None
+
         return os.path.dirname(os.path.realpath(target_path)), file_list
 
     if os.path.isfile(target_path):
@@ -82,10 +85,13 @@ def resolve_input(target_path: str):
 
 
 def main(argv=None) -> int:
-    """runs one import and returns the exit code (0 ok, 1 a file errored, 2 bad path)."""
+    """
+    runs one import and returns the exit code
+    (0 ok, 1 a file errored, 2 bad path).
+    """
     args = parse_args(argv)
 
-    # optional cloud ingestion: only makes sense when the target is a folder
+    # optional cloud ingestion
     if not args.no_azure and os.path.isdir(args.path):
         download_dicom_from_azure(args.path)
 
@@ -94,16 +100,18 @@ def main(argv=None) -> int:
         logger.error("Path not found or no files match: %s", args.path)
         return 2
 
-    # reset when asked on the command line or by RESET_TABLES=true in .env
+    # reset when asked on the command line / RESET_TABLES=true in .env
     reset = args.reset or env_flag("RESET_TABLES")
     if reset:
         logger.warning("reset requested: dropping and recreating all pipeline tables")
+
     db_init(reset_tables=reset, logger=logger)
 
     session_id = create_import_session()
     settings = load_settings_from_db()
 
-    # values from the database win; DEFAULT_SETTINGS covers any missing key
+    # values from the database get stored over DEFAULT_SETTINGS
+    # (keys not affected stay the same)
     settings = {**DEFAULT_SETTINGS, **settings}
 
     workers = args.workers if args.workers is not None else int(settings["workers"])
@@ -124,6 +132,7 @@ def main(argv=None) -> int:
 
     if file_list is None:
         logger.info("Importing all files from folder: %s", base_folder)
+
     else:
         logger.info("Importing %d specific file(s)", len(file_list))
 
@@ -133,6 +142,7 @@ def main(argv=None) -> int:
     if failed:
         logger.error("%d file(s) failed with errors", len(failed))
         return 1
+
     return 0
 
 
