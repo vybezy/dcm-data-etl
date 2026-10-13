@@ -6,16 +6,16 @@ database ends up holding one clean copy of the data. run it inside docker:
 
     docker compose run --rm etl_pipeline python benchmark.py
 
-options: --workers 0 1 2 4 8 (worker counts to try), --repeats 3, and a path
+options: --workers 0/1/2/4/8 (worker counts to try), --repeats 3, and a path
 (defaults to the same folder main.py uses).
 """
-import os
-import sys
-import time
-import logging
 import argparse
+import logging
+import os
 import platform
 import statistics
+import sys
+import time
 
 import main
 from logger import console_handler
@@ -38,6 +38,7 @@ def run_import(path: str, workers: int) -> float:
     elapsed = time.perf_counter() - start
     if exit_code != 0:
         raise SystemExit(f"import failed with exit code {exit_code} (workers={workers})")
+
     return elapsed
 
 
@@ -53,7 +54,9 @@ def run_benchmark(path: str, worker_counts, repeats: int, runner=run_import):
             seconds = runner(path, workers)
             times.append(seconds)
             print(f"  workers={workers}  run {attempt}/{repeats}: {seconds:.2f}s", flush=True)
+
         results.append((workers, statistics.median(times)))
+
     return results
 
 
@@ -69,17 +72,32 @@ def format_table(results, n_files: int) -> str:
         lines.append(
             f"| {label} | {seconds:.2f} | {n_files / seconds:.1f} | {baseline / seconds:.2f}x |"
         )
+
     return "\n".join(lines)
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     """reads the command-line options."""
-    default_path = main.DOCKER_DATA_DIR if os.path.isdir(main.DOCKER_DATA_DIR) else main.LOCAL_DATA_DIR
-    parser = argparse.ArgumentParser(description="Benchmark import speed for different worker counts.")
-    parser.add_argument("path", nargs="?", default=default_path, help=f"folder to import (default: {default_path})")
-    parser.add_argument("--workers", type=int, nargs="+", default=[0, 1, 2, 4, 8],
-                        help="worker counts to try (default: 0 1 2 4 8)")
-    parser.add_argument("--repeats", type=int, default=3, help="runs per worker count (default: 3)")
+    default_path = (
+        main.DOCKER_DATA_DIR
+        if os.path.isdir(main.DOCKER_DATA_DIR)
+        else main.LOCAL_DATA_DIR
+    )
+    parser = argparse.ArgumentParser(
+        description="Benchmark import speed for different worker counts."
+    )
+    parser.add_argument(
+        "path", nargs="?", default=default_path,
+        help=f"folder to import (default: {default_path})",
+    )
+    parser.add_argument(
+        "--workers", type=int, nargs="+", default=[0, 1, 2, 4, 8],
+        help="worker counts to try (default: 0 1 2 4 8)",
+    )
+    parser.add_argument(
+        "--repeats", type=int, default=3,
+        help="runs per worker count (default: 3)",
+    )
     return parser.parse_args(argv)
 
 
@@ -99,7 +117,10 @@ def benchmark(argv=None) -> int:
     results = run_benchmark(args.path, args.workers, args.repeats)
 
     print()
-    print(f"machine: {os.cpu_count()} CPU cores, Python {platform.python_version()}, {platform.system()}")
+    print(
+        f"machine: {os.cpu_count()} CPU cores, "
+        f"Python {platform.python_version()}, {platform.system()}"
+    )
     print(f"files: {n_files}, median of {args.repeats} runs, tables reset before every run")
     print()
     print(format_table(results, n_files))
