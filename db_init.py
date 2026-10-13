@@ -1,7 +1,9 @@
 """
-creates the database schema (patients, studies, series, instances, headers, logs, settings).
+creates the database schema
+(patients, studies, series, instances, headers, logs, settings).
 """
 import logging
+
 from config import DEFAULT_SETTINGS
 from database import db_connection
 
@@ -9,7 +11,7 @@ from database import db_connection
 def db_init(reset_tables: bool = False, logger: logging.Logger = None):
     """
     creates all pipeline tables (and drops them first if reset_tables=True).
-    Runs in one transaction: if any statement fails, nothing is half-created,
+    Runs in one transaction: if any statement fails, nothing is half-created.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -21,7 +23,10 @@ def db_init(reset_tables: bool = False, logger: logging.Logger = None):
 
 
 def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
-    """runs all the CREATE TABLE / INDEX statements and seeds the default settings."""
+    """
+    runs all the CREATE TABLE / INDEX statements
+    and seeds the default settings.
+    """
     if reset_tables:
         logger.info("Resetting database tables...")
         cur.execute("DROP TABLE IF EXISTS dicom_logger CASCADE;")
@@ -33,9 +38,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         cur.execute("DROP TABLE IF EXISTS dicom_series CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_studies CASCADE;")
         cur.execute("DROP TABLE IF EXISTS dicom_patients CASCADE;")
-
-
-    # logger Session
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger_session (
@@ -50,9 +52,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_logger_session.logses_userid IS 'Database user who initiated the import session.';
         COMMENT ON COLUMN dicom_logger_session.logses_machineid IS 'Network identity/hostname of the machine running the import script.';
     """)
-
-
-    # logger
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_logger (
@@ -86,9 +85,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_logger.log_stack_trace IS 'Full traceback for post-mortem debugging.';
     """)
 
-
-    # settings
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_settings (
             key TEXT PRIMARY KEY,
@@ -98,8 +94,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_settings.key IS 'Configuration parameter name (e.g., max_file_size).';
         COMMENT ON COLUMN dicom_settings.value IS 'Configuration parameter value stored as text for flexible casting.';
     """)
-
-    # patients
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_patients (
@@ -119,9 +113,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_patients.sex IS 'Extracted from DICOM Tag (0010,0040) (e.g., M, F, O).';
         COMMENT ON COLUMN dicom_patients.created_at IS 'UTC timestamp recording when this patient profile was first ingested.';
     """)
-
-
-    # studies (Clinical Examination / Hospital Appointment)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_studies (
@@ -155,9 +146,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_studies.created_at IS 'UTC timestamp recording when this study was ingested.';
         COMMENT ON INDEX idx_studies_patient_id IS 'B-Tree Index: Optimizes joins to fetch all medical exams belonging to a single patient.';
     """)
-
-
-    # series (Scanner Protocol / Acquisition Run)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_series (
@@ -196,9 +184,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON INDEX idx_series_study_id IS 'B-Tree Index: Optimizes joins to fetch all scan series belonging to a specific hospital visit.';
         COMMENT ON INDEX idx_series_modality IS 'B-Tree Index: Enables rapid filtering of the database by imaging technology.';
     """)
-
-
-    # instances
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_instances (
@@ -242,8 +227,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON INDEX idx_instances_metadata_gin IS 'GIN Index: Enables lightning-fast searches deep inside the unstructured DICOM metadata payload.';
     """)
 
-
-    # header (Tag Dictionary)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_header (
             header_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -273,14 +256,10 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON INDEX idx_dicom_headers_tag IS 'B-Tree Index: Enables rapid filtering across all files by specific tag (e.g., finding all slices with a specific Modality or PhotometricInterpretation).';
     """)
 
-
-    # pixel data (kept apart so metadata queries never read the large bytes)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dicom_pixel_data (
             file_id INTEGER PRIMARY KEY,
             transfer_syntax_uid VARCHAR(64),
-            rows INTEGER NOT NULL,
-            columns INTEGER NOT NULL,
             number_of_frames INTEGER NOT NULL DEFAULT 1,
             samples_per_pixel SMALLINT,
             bits_allocated SMALLINT,
@@ -301,8 +280,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON TABLE dicom_pixel_data IS 'Raw image bytes of each instance (Tag 7FE0,0010) plus everything needed to rebuild the image. One row per dicom_instances row.';
         COMMENT ON COLUMN dicom_pixel_data.file_id IS 'Primary key and foreign key to dicom_instances; deleting the instance deletes its pixels.';
         COMMENT ON COLUMN dicom_pixel_data.transfer_syntax_uid IS 'Encoding of pixel_data from Tag (0002,0010), e.g. 1.2.840.10008.1.2.1 = uncompressed little endian. Compressed syntaxes (JPEG etc.) are stored still encapsulated.';
-        COMMENT ON COLUMN dicom_pixel_data.rows IS 'Image height in pixels, Tag (0028,0010).';
-        COMMENT ON COLUMN dicom_pixel_data.columns IS 'Image width in pixels, Tag (0028,0011).';
         COMMENT ON COLUMN dicom_pixel_data.number_of_frames IS 'Frames in the pixel data, Tag (0028,0008); 1 for a normal CT slice.';
         COMMENT ON COLUMN dicom_pixel_data.samples_per_pixel IS 'Channels per pixel, Tag (0028,0002): 1 = grayscale, 3 = colour.';
         COMMENT ON COLUMN dicom_pixel_data.bits_allocated IS 'Bits used to store one sample, Tag (0028,0100), usually 16 for CT.';
@@ -317,9 +294,6 @@ def _create_schema(cur, reset_tables: bool, logger: logging.Logger):
         COMMENT ON COLUMN dicom_pixel_data.created_at IS 'Timestamp of when the pixels were stored.';
     """)
 
-
-    # default settings: inserted on every run, but ON CONFLICT keeps any value
-    # an operator has already changed, so tuned settings survive restarts.
     cur.executemany(
         "INSERT INTO dicom_settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO NOTHING;",
         list(DEFAULT_SETTINGS.items()),
