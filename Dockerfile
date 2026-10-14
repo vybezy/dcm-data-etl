@@ -1,7 +1,7 @@
-# ---------- Build stage: compile dependencies that need a C compiler ----------
+# build stage: compile dependencies that need a C compiler
 FROM python:3.11-slim-bookworm AS builder
 
-# gcc, the C library headers (libc6-dev) and the PostgreSQL headers are only
+# gcc, the C library headers (libc6-dev) and the PostgreSQL headers are
 # needed to compile psycopg2; none of them end up in the runtime image
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libc6-dev libpq-dev \
@@ -11,13 +11,13 @@ COPY requirements.txt .
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 
-# ---------- Runtime stage: only what the pipeline needs to run ----------
+# runtime stage: only what the pipeline needs to run
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# libpq5 is the PostgreSQL client library psycopg2 links against at runtime
+# libpq5 is PostgreSQL client library psycopg2 links against at runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 \
     && rm -rf /var/lib/apt/lists/*
@@ -26,10 +26,9 @@ RUN apt-get update \
 RUN useradd --create-home --uid 1000 etl
 
 WORKDIR /app
-# the pipeline writes its log file into /app, so the user must own it
+
 RUN chown etl:etl /app
 
-# install the pre-built wheels; no compiler in this image
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index /wheels/* && rm -rf /wheels
 
