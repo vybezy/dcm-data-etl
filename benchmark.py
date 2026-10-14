@@ -61,7 +61,7 @@ def run_benchmark(path: str, worker_counts, repeats: int, runner=run_import):
 
 
 def format_table(results, n_files: int) -> str:
-    """markdown table, ready to paste into the readme. speed-up is relative to the first row."""
+    """markdown table speed-up is relative to the first row."""
     baseline = results[0][1]
     lines = [
         "| Workers | Time (s) | Files/sec | Speed-up |",
