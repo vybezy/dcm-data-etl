@@ -12,3 +12,7 @@ python-dotenv==1.2.4
 
 # Optional cloud ingestion
 azure-storage-blob==12.31.0
+
+# Web API
+fastapi==0.143.3
+uvicorn==0.54.0
