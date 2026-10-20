@@ -1,6 +1,7 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from repositories import settings_repository, stats_repository
+from repositories import browse_repository, settings_repository, stats_repository
 
 
 def test_get_counts_maps_row_to_dict():
@@ -33,3 +34,19 @@ def test_save_all_upserts_every_setting():
     sql, rows = cur.executemany.call_args.args
     assert "ON CONFLICT (key) DO UPDATE" in sql
     assert rows == [("workers", "4"), ("store_pixel_data", "true")]
+
+
+def test_fetch_all_maps_rows_by_column_name():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.description = [SimpleNamespace(name="file_id"), SimpleNamespace(name="instance_number")]
+    cur.fetchall.return_value = [(10, 1), (11, 2)]
+
+    with patch("repositories.browse_repository.db_connection") as mock_db:
+        mock_db.return_value.__enter__.return_value = conn
+        result = browse_repository.list_instances(5)
+
+    assert result == [
+        {"file_id": 10, "instance_number": 1},
+        {"file_id": 11, "instance_number": 2},
+    ]
