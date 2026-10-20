@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from repositories import stats_repository
+from repositories import settings_repository, stats_repository
 
 
 def test_get_counts_maps_row_to_dict():
@@ -20,3 +20,16 @@ def test_get_counts_maps_row_to_dict():
         "total_file_bytes": 41123456,
         "total_pixel_bytes": 40894464,
     }
+
+
+def test_save_all_upserts_every_setting():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+
+    with patch("repositories.settings_repository.db_connection") as mock_db:
+        mock_db.return_value.__enter__.return_value = conn
+        settings_repository.save_all({"workers": "4", "store_pixel_data": "true"})
+
+    sql, rows = cur.executemany.call_args.args
+    assert "ON CONFLICT (key) DO UPDATE" in sql
+    assert rows == [("workers", "4"), ("store_pixel_data", "true")]
