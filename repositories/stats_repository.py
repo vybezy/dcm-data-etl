@@ -1,9 +1,13 @@
-"""sql for the dashboard"""
+"""sql for the dashboard."""
 
 from database import db_connection
 
 
 def get_counts() -> dict:
+    """
+    counts how many patients, studies, series, etc. in the database
+    and stores values in dict, mapping the data to the right name.
+    """
     with db_connection() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT
