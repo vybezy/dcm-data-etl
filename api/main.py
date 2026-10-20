@@ -3,7 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.controllers import health, settings, stats
+from api.controllers import browse, health, settings, stats
 from services.errors import InvalidSettingsError, NotFoundError
 
 app = FastAPI(
@@ -26,3 +26,4 @@ def handle_invalid_settings(request: Request, exc: InvalidSettingsError) -> JSON
 app.include_router(health.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(browse.router, prefix="/api")
