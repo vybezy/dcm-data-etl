@@ -86,3 +86,39 @@ def test_put_settings_rejects_negative_workers():
 
     assert response.status_code == 422
     mock_save.assert_not_called()
+
+
+# browse
+def test_list_patients_masks_names():
+    rows = [{"patient_id": 1, "patient_name": "DOE^JOHN", "sex": "M", "study_count": 1}]
+
+    with patch("repositories.browse_repository.list_patients", return_value=rows):
+        response = client.get("/api/patients")
+
+    assert response.status_code == 200
+    assert response.json()[0]["patient_name"] == "D** J***"
+
+
+def test_list_patients_rejects_limit_over_200():
+    response = client.get("/api/patients?limit=500")
+    assert response.status_code == 422
+
+
+def test_list_studies_returns_404_for_unknown_patient():
+    with patch("repositories.browse_repository.patient_exists", return_value=False):
+        response = client.get("/api/patients/99/studies")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "patient 99 not found"}
+
+
+def test_list_instances_returns_slices():
+    slices = [{"file_id": 10, "instance_number": 1, "rows": 512, "columns": 512,
+               "file_size_bytes": 527000}]
+
+    with patch("repositories.browse_repository.series_exists", return_value=True), \
+         patch("repositories.browse_repository.list_instances", return_value=slices):
+        response = client.get("/api/series/1/instances")
+
+    assert response.status_code == 200
+    assert response.json() == slices
