@@ -11,3 +11,7 @@ class NotFoundError(Exception):
 
 class ConflictError(Exception):
     """the request clashes with what is running (e.g. an import is already in progress)."""
+
+
+class UnsupportedImageError(Exception):
+    """the stored pixels can't be turned into a picture (e.g. compressed or colour images)."""
