@@ -3,8 +3,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from api.controllers import browse, health, settings, stats
-from services.errors import InvalidSettingsError, NotFoundError
+from api.controllers import admin, browse, health, imports, settings, stats
+from services.errors import ConflictError, InvalidSettingsError, NotFoundError
 
 app = FastAPI(
     title="DICOM ETL API",
@@ -23,7 +23,14 @@ def handle_invalid_settings(request: Request, exc: InvalidSettingsError) -> JSON
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
+@app.exception_handler(ConflictError)
+def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 app.include_router(health.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(browse.router, prefix="/api")
+app.include_router(imports.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
