@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 from fastapi.testclient import TestClient
 
 from api.main import app
@@ -197,3 +198,33 @@ def test_reset_drops_tables_when_confirmed(monkeypatch):
 
     assert response.status_code == 200
     reset.assert_called_once()
+
+
+# images
+def test_image_returns_png():
+    info = {
+        "rows": 2, "columns": 2, "transfer_syntax_uid": "1.2.840.10008.1.2.1",
+        "samples_per_pixel": 1, "bits_allocated": 16, "pixel_representation": 1,
+        "photometric_interpretation": "MONOCHROME2",
+        "rescale_slope": 1.0, "rescale_intercept": -1024.0,
+        "pixel_data": np.array([0, 1024, 1064, 2048], dtype="<i2").tobytes(),
+    }
+
+    with patch("repositories.image_repository.get_pixel_data", return_value=info):
+        response = client.get("/api/instances/1/image?window=lung")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_image_returns_404_without_pixel_data():
+    with patch("repositories.image_repository.get_pixel_data", return_value=None):
+        response = client.get("/api/instances/1/image")
+
+    assert response.status_code == 404
+
+
+def test_image_rejects_unknown_window():
+    response = client.get("/api/instances/1/image?window=lungs")
+    assert response.status_code == 422
