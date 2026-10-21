@@ -228,3 +228,12 @@ def test_image_returns_404_without_pixel_data():
 def test_image_rejects_unknown_window():
     response = client.get("/api/instances/1/image?window=lungs")
     assert response.status_code == 422
+
+
+# gui
+def test_root_serves_the_gui():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "DICOM ETL" in response.text

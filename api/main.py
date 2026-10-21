@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.controllers import admin, browse, health, images, imports, settings, stats
 from services.errors import (ConflictError, InvalidSettingsError, NotFoundError,
@@ -41,3 +42,6 @@ app.include_router(browse.router, prefix="/api")
 app.include_router(imports.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
+
+# last on purpose: anything that isn't /api/... is a file from web/ ("/" -> web/index.html)
+app.mount("/", StaticFiles(directory="web", html=True), name="web")

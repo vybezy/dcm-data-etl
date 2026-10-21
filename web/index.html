@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DICOM ETL</title>
+  <!-- poppins (text) and material symbols (icons) from google fonts -->
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap">
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <header class="sidebar-header">
+      <span class="logo material-symbols-rounded">monitor_heart</span>
+      <span class="brand label">DICOM ETL</span>
+    </header>
+
+    <!-- round button on the sidebar's right edge -->
+    <button class="toggle" id="sidebar-toggle" title="Collapse / expand menu">
+      <span class="material-symbols-rounded">chevron_left</span>
+    </button>
+
+    <nav class="menu">
+      <a href="#dashboard" title="Dashboard">
+        <span class="material-symbols-rounded">dashboard</span>
+        <span class="label">Dashboard</span>
+      </a>
+      <a href="#browse" title="Browse">
+        <span class="material-symbols-rounded">folder_open</span>
+        <span class="label">Browse</span>
+      </a>
+      <a href="#import" title="Import">
+        <span class="material-symbols-rounded">upload_file</span>
+        <span class="label">Import</span>
+      </a>
+      <a href="#history" title="Import history">
+        <span class="material-symbols-rounded">history</span>
+        <span class="label">Import history</span>
+      </a>
+      <a href="#settings" title="Settings">
+        <span class="material-symbols-rounded">settings</span>
+        <span class="label">Settings</span>
+      </a>
+      <a href="#danger" title="Danger zone">
+        <span class="material-symbols-rounded">warning</span>
+        <span class="label">Danger zone</span>
+      </a>
+    </nav>
+  </aside>
+
+  <main>
+    <section id="dashboard" class="page">
+      <h2>Dashboard</h2>
+      <p class="error" id="dashboard-error"></p>
+      <div class="cards">
+        <div class="card">
+          <span class="card-label">Patients</span>
+          <span class="card-value" id="stat-patients">–</span>
+        </div>
+        <div class="card">
+          <span class="card-label">Studies</span>
+          <span class="card-value" id="stat-studies">–</span>
+        </div>
+        <div class="card">
+          <span class="card-label">Series</span>
+          <span class="card-value" id="stat-series">–</span>
+        </div>
+        <div class="card">
+          <span class="card-label">Instances</span>
+          <span class="card-value" id="stat-instances">–</span>
+        </div>
+        <div class="card">
+          <span class="card-label">Pixel data</span>
+          <span class="card-value" id="stat-pixels">–</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="browse" class="page">
+      <h2>Browse</h2>
+      <p class="muted">Coming next.</p>
+    </section>
+
+    <section id="import" class="page">
+      <h2>Import</h2>
+      <p class="muted">Coming next.</p>
+    </section>
+
+    <section id="history" class="page">
+      <h2>Import history</h2>
+      <p class="muted">Coming next.</p>
+    </section>
+
+    <section id="settings" class="page">
+      <h2>Settings</h2>
+      <p class="muted">Coming next.</p>
+    </section>
+
+    <section id="danger" class="page">
+      <h2>Danger zone</h2>
+      <p class="muted">Coming next.</p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
