@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from repositories import browse_repository, settings_repository, stats_repository
+from repositories import common, settings_repository, stats_repository
 
 
 def test_get_counts_maps_row_to_dict():
@@ -42,9 +42,9 @@ def test_fetch_all_maps_rows_by_column_name():
     cur.description = [SimpleNamespace(name="file_id"), SimpleNamespace(name="instance_number")]
     cur.fetchall.return_value = [(10, 1), (11, 2)]
 
-    with patch("repositories.browse_repository.db_connection") as mock_db:
+    with patch("repositories.common.db_connection") as mock_db:
         mock_db.return_value.__enter__.return_value = conn
-        result = browse_repository.list_instances(5)
+        result = common.fetch_all("SELECT file_id, instance_number FROM dicom_instances", ())
 
     assert result == [
         {"file_id": 10, "instance_number": 1},
