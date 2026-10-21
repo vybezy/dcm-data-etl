@@ -302,6 +302,11 @@ def process_file(path: str, options_dict: dict):
             conn.close()
 
 
+def list_files(folder: str) -> list:
+    """every file under folder. non-dicom files are kept so they get reported as skipped."""
+    return [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
+
+
 def scan_and_import(folder: str, options: ImportOptions, file_list: list = None):
     """
     imports every file under `folder`,
@@ -309,8 +314,7 @@ def scan_and_import(folder: str, options: ImportOptions, file_list: list = None)
     Returns one result dict per file.
     """
     if file_list is None:
-        # take every file so non-dicom files are reported as skipped
-        file_list = [os.path.join(root, f) for root, _, files in os.walk(folder) for f in files]
+        file_list = list_files(folder)
 
     logger.info("Found %d file(s) to process", len(file_list))
 
