@@ -28,11 +28,16 @@ DOCKER_DATA_DIR = "/data"
 LOCAL_DATA_DIR = "./data"
 
 
+def default_data_dir() -> str:
+    """/data inside docker, ./data otherwise."""
+    return DOCKER_DATA_DIR if os.path.isdir(DOCKER_DATA_DIR) else LOCAL_DATA_DIR
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     """
     reads command-line options (see examples at the top of file).
     """
-    default_path = DOCKER_DATA_DIR if os.path.isdir(DOCKER_DATA_DIR) else LOCAL_DATA_DIR
+    default_path = default_data_dir()
 
     parser = argparse.ArgumentParser(
         description="Validate DICOM files and load their metadata into PostgreSQL."
@@ -84,6 +89,34 @@ def resolve_input(target_path: str):
     return None, None
 
 
+def build_options(base_folder: str, workers: int = None, dry_run: bool = False) -> ImportOptions:
+    """
+    starts a new import session and builds the options for it.
+    shared by cmd (main) and the api (services/imports_service.py).
+    """
+    session_id = create_import_session()
+
+    # values from the database get stored over DEFAULT_SETTINGS
+    settings = {**DEFAULT_SETTINGS, **load_settings_from_db()}
+
+    if workers is None:
+        workers = int(settings["workers"])
+
+    logger.info("Session ID: %s", session_id)
+    logger.info("Settings loaded: %s", settings)
+
+    return ImportOptions(
+        base_folder=base_folder,
+        min_size=int(settings["min_file_size"]),
+        max_size=int(settings["max_file_size"]),
+        max_file_age_months=int(settings["max_file_age_months"]),
+        workers=workers,
+        dry_run=dry_run,
+        session_id=session_id,
+        store_pixel_data=is_true(settings["store_pixel_data"]),
+    )
+
+
 def main(argv=None) -> int:
     """
     runs one import and returns the exit code
@@ -107,28 +140,7 @@ def main(argv=None) -> int:
 
     db_init(reset_tables=reset, logger=logger)
 
-    session_id = create_import_session()
-    settings = load_settings_from_db()
-
-    # values from the database get stored over DEFAULT_SETTINGS
-    # (keys not affected stay the same)
-    settings = {**DEFAULT_SETTINGS, **settings}
-
-    workers = args.workers if args.workers is not None else int(settings["workers"])
-
-    options = ImportOptions(
-        base_folder=base_folder,
-        min_size=int(settings["min_file_size"]),
-        max_size=int(settings["max_file_size"]),
-        max_file_age_months=int(settings["max_file_age_months"]),
-        workers=workers,
-        dry_run=args.dry_run,
-        session_id=session_id,
-        store_pixel_data=is_true(settings["store_pixel_data"]),
-    )
-
-    logger.info("Session ID: %s", session_id)
-    logger.info("Settings loaded: %s", settings)
+    options = build_options(base_folder, workers=args.workers, dry_run=args.dry_run)
 
     if file_list is None:
         logger.info("Importing all files from folder: %s", base_folder)
