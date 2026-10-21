@@ -1,8 +1,10 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from api.main import app
+from services import imports_service
 
 client = TestClient(app)
 
@@ -122,3 +124,76 @@ def test_list_instances_returns_slices():
 
     assert response.status_code == 200
     assert response.json() == slices
+
+
+# imports
+class RunNow:
+    """stand-in for Thread that runs the target straight away, so the test doesn't race it."""
+
+    def __init__(self, target, args, **kwargs):
+        self.target, self.args = target, args
+
+    def start(self):
+        self.target(*self.args)
+
+
+def test_list_imports_adds_status_of_tracked_jobs(monkeypatch):
+    monkeypatch.setattr(imports_service, "_jobs", {12: {"status": "running", "total_files": 78}})
+    rows = [{"id": 12, "processed": 31}, {"id": 11, "processed": 5}]
+
+    with patch("repositories.imports_repository.list_sessions", return_value=rows):
+        response = client.get("/api/imports")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"id": 12, "processed": 31, "status": "running", "total_files": 78},
+        {"id": 11, "processed": 5, "status": "unknown", "total_files": None},
+    ]
+
+
+def test_start_import_rejects_folder_outside_data():
+    response = client.post("/api/imports", json={"folder": "../secret"})
+    assert response.status_code == 422
+
+
+def test_start_import_returns_202_and_runs_in_background(monkeypatch):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    with patch("services.imports_service.db_init"), \
+         patch("main.build_options", return_value=SimpleNamespace(session_id=7)), \
+         patch("processor.list_files", return_value=["a.dcm", "b.dcm"]), \
+         patch("processor.scan_and_import") as scan, \
+         patch("services.imports_service.Thread", RunNow):
+        response = client.post("/api/imports", json={"dry_run": True})
+
+    assert response.status_code == 202
+    assert response.json() == {"id": 7, "status": "running", "total_files": 2}
+    scan.assert_called_once()
+    assert imports_service._jobs[7]["status"] == "finished"
+
+
+def test_start_import_returns_409_when_one_is_running(monkeypatch):
+    monkeypatch.setattr(imports_service, "_jobs", {1: {"status": "running", "total_files": 3}})
+
+    response = client.post("/api/imports", json={})
+
+    assert response.status_code == 409
+
+
+# admin
+def test_reset_requires_typed_confirmation():
+    with patch("repositories.admin_repository.reset_tables") as reset:
+        response = client.post("/api/admin/reset", json={"confirm": "yes"})
+
+    assert response.status_code == 422
+    reset.assert_not_called()
+
+
+def test_reset_drops_tables_when_confirmed(monkeypatch):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    with patch("repositories.admin_repository.reset_tables") as reset:
+        response = client.post("/api/admin/reset", json={"confirm": "RESET"})
+
+    assert response.status_code == 200
+    reset.assert_called_once()
