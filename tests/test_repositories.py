@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from repositories import common, settings_repository, stats_repository
+from repositories import common, imports_repository, settings_repository, stats_repository
 
 
 def test_get_counts_maps_row_to_dict():
@@ -50,3 +50,12 @@ def test_fetch_all_maps_rows_by_column_name():
         {"file_id": 10, "instance_number": 1},
         {"file_id": 11, "instance_number": 2},
     ]
+
+
+def test_list_sessions_newest_first_with_limit():
+    with patch("repositories.common.fetch_all", return_value=[]) as fetch:
+        imports_repository.list_sessions(5)
+
+    sql, params = fetch.call_args.args
+    assert "ORDER BY s.logses_id DESC LIMIT %s" in sql
+    assert params == (5,)
