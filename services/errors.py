@@ -7,3 +7,7 @@ class InvalidSettingsError(Exception):
 
 class NotFoundError(Exception):
     """the requested patient, study or series does not exist."""
+
+
+class ConflictError(Exception):
+    """the request clashes with what is running (e.g. an import is already in progress)."""
