@@ -16,3 +16,7 @@ azure-storage-blob==12.31.0
 # Web API
 fastapi==0.143.3
 uvicorn==0.54.0
+
+# Image rebuilding for the API (numpy 2.5 needs Python 3.12+, CI and Docker use 3.11)
+numpy==2.4.6
+pillow==13.0.0
