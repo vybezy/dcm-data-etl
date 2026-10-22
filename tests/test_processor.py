@@ -143,6 +143,20 @@ def test_sanitize_dotdot_traversal(tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need elevated rights on Windows")
+def test_sanitize_accepts_base_folder_reached_through_symlink(tmp_path):
+    real_base = tmp_path / "real"
+    real_base.mkdir()
+    f = real_base / "a.dcm"
+    f.write_bytes(b"x")
+    link_base = tmp_path / "link"
+    link_base.symlink_to(real_base, target_is_directory=True)
+
+    result = sanitize_and_validate_path(str(link_base / "a.dcm"), str(link_base))
+
+    assert result == os.path.realpath(str(f))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need elevated rights on Windows")
 def test_sanitize_symlink_escape(tmp_path):
     base = tmp_path / "data"
     base.mkdir()

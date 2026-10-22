@@ -48,25 +48,25 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
     and makes sure it is still inside base_folder.
     returns the real path or raises if it escapes.
     """
-    base_abs = os.path.abspath(base_folder)
+    base_real = os.path.realpath(base_folder)
     candidate_real = os.path.realpath(candidate)
 
     if not os.path.exists(candidate_real):
         raise FileNotFoundError(f"Path does not exist: {candidate}")
 
     try:
-        common = os.path.commonpath([base_abs, candidate_real])
+        common = os.path.commonpath([base_real, candidate_real])
 
     except ValueError as err:
         raise ImportErrorWithContext(
             f"Candidate path {candidate_real}"
-            f"is not on the same filesystem as base {base_abs}"
+            f"is not on the same filesystem as base {base_real}"
         ) from err
 
-    if common != base_abs:
+    if common != base_real:
         raise ImportErrorWithContext(
             f"Path traversal or escape detected: {candidate_real}"
-            f"is not under {base_abs}"
+            f"is not under {base_real}"
         )
 
     return candidate_real
