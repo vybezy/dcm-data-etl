@@ -44,9 +44,9 @@
         <span class="material-symbols-rounded">settings</span>
         <span class="label">Settings</span>
       </a>
-      <a href="#danger" title="Danger zone">
-        <span class="material-symbols-rounded">warning</span>
-        <span class="label">Danger zone</span>
+      <a href="#reset" title="Reset">
+        <span class="material-symbols-rounded">restart_alt</span>
+        <span class="label">Reset</span>
       </a>
     </nav>
   </aside>
@@ -118,22 +118,109 @@
 
     <section id="import" class="page">
       <h2>Import</h2>
-      <p class="muted">Coming next.</p>
+
+      <form class="panel" id="import-form">
+        <label for="import-folder">Folder inside data/</label>
+        <div class="folder-row">
+          <select id="import-folder"></select>
+          <button type="button" class="icon-button" id="refresh-folders"
+                  title="Reload the folder list">
+            <span class="material-symbols-rounded">refresh</span>
+          </button>
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" id="import-dry-run">
+          Dry run (check everything, insert nothing)
+        </label>
+        <button type="submit" class="primary" id="import-start">
+          <span class="material-symbols-rounded">play_arrow</span>
+          Start import
+        </button>
+        <p class="error" id="import-error"></p>
+      </form>
+
+      <!-- shown once an import is running -->
+      <div class="panel" id="import-progress" hidden>
+        <p class="progress-title" id="import-title"></p>
+        <progress id="import-bar" max="1" value="0"></progress>
+        <p class="muted" id="import-counts"></p>
+      </div>
     </section>
 
     <section id="history" class="page">
       <h2>Import history</h2>
-      <p class="muted">Coming next.</p>
+      <p class="error" id="history-error"></p>
+      <div id="history-list"></div>
     </section>
 
     <section id="settings" class="page">
       <h2>Settings</h2>
-      <p class="muted">Coming next.</p>
+
+      <form class="panel" id="settings-form">
+        <p class="muted panel-intro">Changes apply to the next import.</p>
+
+        <div class="field">
+          <label for="set-min-size">Minimum file size (KB)</label>
+          <input type="number" id="set-min-size" min="0" step="any">
+          <p class="hint">Smaller files are rejected as invalid.</p>
+        </div>
+        <div class="field">
+          <label for="set-max-size">Maximum file size (MB)</label>
+          <input type="number" id="set-max-size" min="0" step="any">
+          <p class="hint">Bigger files are rejected. Must be bigger than the minimum.</p>
+        </div>
+        <div class="field">
+          <label for="set-max-age">Maximum scan age (months)</label>
+          <input type="number" id="set-max-age" min="1" step="1">
+          <p class="hint">Scans older than this (by the date in the DICOM header) are rejected.</p>
+        </div>
+        <div class="field">
+          <label for="set-workers">Parallel workers</label>
+          <input type="number" id="set-workers" min="0" max="32" step="1">
+          <p class="hint">Worker processes for an import. 0 = one file at a time. Maximum 32.</p>
+        </div>
+
+        <label class="switch-row">
+          <span>
+            Store pixel data
+            <span class="hint">Needed to show images. Turn off for a faster, metadata-only import.</span>
+          </span>
+          <input type="checkbox" class="switch" id="set-store-pixels">
+        </label>
+
+        <button type="submit" class="primary">
+          <span class="material-symbols-rounded">save</span>
+          Save settings
+        </button>
+        <p class="success" id="settings-saved"></p>
+        <p class="error" id="settings-error"></p>
+      </form>
     </section>
 
-    <section id="danger" class="page">
-      <h2>Danger zone</h2>
-      <p class="muted">Coming next.</p>
+    <section id="reset" class="page">
+      <h2>Reset</h2>
+
+      <form class="panel panel-danger" id="reset-form">
+        <p class="danger-title">
+          <span class="material-symbols-rounded">warning</span>
+          Reset the database
+        </p>
+        <p class="panel-intro">
+          Deletes every imported patient, study, series and image, puts all settings back to
+          their defaults and empties the import history. This can't be undone.
+          Your files in data/ are not touched, so you can import them again afterwards.
+        </p>
+
+        <label for="reset-confirm">Type RESET to confirm</label>
+        <input type="text" id="reset-confirm" autocomplete="off" placeholder="RESET">
+
+        <button type="submit" class="primary danger" id="reset-button" disabled>
+          <span class="material-symbols-rounded">delete_forever</span>
+          Reset database
+        </button>
+        <p class="success" id="reset-done"></p>
+        <p class="error" id="reset-error"></p>
+      </form>
     </section>
   </main>
 

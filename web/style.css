@@ -205,6 +205,15 @@ h2 {
   display: none;
 }
 
+.success {
+  margin-top: 12px;
+  color: #15803d;
+}
+
+.success:empty {
+  display: none;
+}
+
 /* browse: breadcrumb and tables */
 
 .breadcrumb {
@@ -248,10 +257,14 @@ th {
 
 tbody tr {
   border-top: 1px solid #eef2f7;
+}
+
+/* only rows that do something when clicked look clickable */
+tbody tr.clickable {
   cursor: pointer;
 }
 
-tbody tr:hover {
+tbody tr.clickable:hover {
   background: #eef4ff;
 }
 
@@ -329,4 +342,227 @@ tbody tr:hover {
   border-color: var(--accent);
   background: var(--accent);
   color: white;
+}
+
+/* ---------- import: form and progress ---------- */
+
+.panel {
+  max-width: 560px;
+  margin-bottom: 20px;
+  padding: 20px 24px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(23, 32, 51, 0.08);
+}
+
+.panel label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.panel input[type="text"],
+.panel input[type="number"],
+.panel select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d0d7e2;
+  border-radius: 8px;
+  background: white;
+  font: inherit;
+  color: var(--text);
+}
+
+.panel select {
+  cursor: pointer;
+}
+
+.panel select:focus,
+.panel input[type="text"]:focus,
+.panel input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+/* the dropdown and the round refresh button next to it */
+.folder-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.icon-button {
+  flex-shrink: 0;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d0d7e2;
+  border-radius: 8px;
+  background: white;
+  color: var(--navy);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.icon-button:hover {
+  background: #eef4ff;
+}
+
+.panel .checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);   /* the tick box in the theme colour */
+  cursor: pointer;
+}
+
+.panel .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  color: var(--text);
+}
+
+.panel .error {
+  margin: 12px 0 0;
+}
+
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px 10px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+button.primary:hover {
+  background: #2563eb;
+}
+
+button.primary:active {
+  transform: translateY(1px);   /* a small "press" when clicked */
+}
+
+button.primary:disabled {
+  background: #9db8e8;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.progress-title {
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+progress {
+  width: 100%;
+  height: 14px;
+  margin-bottom: 8px;
+  accent-color: var(--accent);
+}
+
+/* ---------- settings ---------- */
+
+.panel-intro {
+  margin-bottom: 16px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* "Store pixel data" label on the left, switch on the right */
+.panel .switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* a normal checkbox restyled as an on/off switch */
+.switch {
+  appearance: none;
+  flex-shrink: 0;
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.switch::after {   /* the white knob */
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s ease;
+}
+
+.switch:checked {
+  background: var(--accent);
+}
+
+.switch:checked::after {
+  transform: translateX(20px);
+}
+
+/* ---------- reset ---------- */
+
+.panel-danger {
+  border: 1px solid #fca5a5;
+}
+
+.danger-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+#reset-confirm {
+  margin-bottom: 16px;
+}
+
+button.primary.danger {
+  background: #dc2626;
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.3);
+}
+
+button.primary.danger:hover {
+  background: #b91c1c;
+}
+
+button.primary.danger:disabled {
+  background: #f3b4b4;
+  box-shadow: none;
 }
