@@ -14,9 +14,20 @@ DEFAULT_SETTINGS = {
 }
 
 
+INT_SETTINGS = ("min_file_size", "max_file_size", "max_file_age_months", "workers")
+BOOL_SETTINGS = ("store_pixel_data",)
+
+
 def is_true(value) -> bool:
     """true for 1, true or yes (any case). used for flags stored as text."""
     return str(value or "").strip().lower() in ("1", "true", "yes")
+
+
+def typed_settings(stored: dict) -> dict:
+    raw = {**DEFAULT_SETTINGS, **stored}
+    typed = {key: int(raw[key]) for key in INT_SETTINGS}
+    typed.update({key: is_true(raw[key]) for key in BOOL_SETTINGS})
+    return typed
 
 
 def env_flag(name: str) -> bool:
