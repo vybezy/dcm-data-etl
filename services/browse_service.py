@@ -5,6 +5,10 @@ from services.errors import NotFoundError
 
 
 def mask_name(name: str) -> str:
+    # the placeholder for removed names isn't personal data, so it stays readable
+    if name == "ANONYMOUS":
+        return name
+
     # "DOE^JOHN" -> "D** J***": first letter of each part stays, the rest is hidden
     parts = name.replace("^", " ").split()
     return " ".join(part[0] + "*" * (len(part) - 1) for part in parts)

@@ -8,7 +8,8 @@ from services.image_service import to_grey, to_grid, to_png
 
 @pytest.mark.parametrize("name, expected", [
     ("DOE^JOHN", "D** J***"),
-    ("ANONYMOUS", "A********"),
+    ("SMITH", "S****"),
+    ("ANONYMOUS", "ANONYMOUS"),
     ("", ""),
 ])
 def test_mask_name(name, expected):
