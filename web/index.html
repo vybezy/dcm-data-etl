@@ -81,7 +81,39 @@
 
     <section id="browse" class="page">
       <h2>Browse</h2>
-      <p class="muted">Coming next.</p>
+      <!-- "Patients > D** J*** > 2025-03-14 > Series 1", each part clickable to go back -->
+      <nav class="breadcrumb" id="breadcrumb"></nav>
+      <p class="error" id="browse-error"></p>
+
+      <!-- the table of patients, studies or series goes here -->
+      <div id="browse-list"></div>
+
+      <!-- the image viewer, hidden until a series is picked -->
+      <div class="viewer" id="viewer" hidden>
+        <img id="slice-image" alt="CT slice">
+
+        <div class="viewer-side">
+          <p class="slice-info" id="slice-info"></p>
+          <div class="slice-nav">
+            <button id="slice-prev" title="Previous slice (left arrow)">
+              <span class="material-symbols-rounded">chevron_left</span>
+            </button>
+            <input type="range" id="slice-slider" min="0" value="0">
+            <button id="slice-next" title="Next slice (right arrow)">
+              <span class="material-symbols-rounded">chevron_right</span>
+            </button>
+          </div>
+
+          <p class="muted">Window</p>
+          <div class="window-buttons">
+            <button data-window="auto">Auto</button>
+            <button data-window="lung">Lung</button>
+            <button data-window="soft_tissue">Soft tissue</button>
+            <button data-window="bone">Bone</button>
+          </div>
+          <p class="error" id="image-error"></p>
+        </div>
+      </div>
     </section>
 
     <section id="import" class="page">
