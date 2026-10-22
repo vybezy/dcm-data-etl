@@ -7,4 +7,7 @@ profiler_logs*.txt
 venv/
 .pytest_cache/
 !samples/*.dcm
+
+# downloaded datasets stay local (180 MB+); only the empty folder is kept
+data/*
 !data/.gitkeep
