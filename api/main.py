@@ -15,32 +15,22 @@ app = FastAPI(
 )
 
 
-@app.exception_handler(NotFoundError)
-def handle_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
-    return JSONResponse(status_code=404, content={"detail": str(exc)})
+ERROR_STATUS = {
+    NotFoundError: 404,
+    InvalidSettingsError: 422,
+    ConflictError: 409,
+    UnsupportedImageError: 422,
+}
 
 
-@app.exception_handler(InvalidSettingsError)
-def handle_invalid_settings(request: Request, exc: InvalidSettingsError) -> JSONResponse:
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+def handle_service_error(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=ERROR_STATUS[type(exc)], content={"detail": str(exc)})
 
 
-@app.exception_handler(ConflictError)
-def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+for error in ERROR_STATUS:
+    app.add_exception_handler(error, handle_service_error)
 
-
-@app.exception_handler(UnsupportedImageError)
-def handle_unsupported_image(request: Request, exc: UnsupportedImageError) -> JSONResponse:
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
-
-
-app.include_router(health.router, prefix="/api")
-app.include_router(stats.router, prefix="/api")
-app.include_router(settings.router, prefix="/api")
-app.include_router(browse.router, prefix="/api")
-app.include_router(imports.router, prefix="/api")
-app.include_router(admin.router, prefix="/api")
-app.include_router(images.router, prefix="/api")
+for controller in (health, stats, settings, browse, imports, admin, images):
+    app.include_router(controller.router, prefix="/api")
 
 app.mount("/", StaticFiles(directory="web", html=True), name="web")
