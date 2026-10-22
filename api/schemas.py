@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.imports_service import FOLDER_PATTERN
+
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -18,8 +20,8 @@ class Settings(BaseModel):
 class ImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # "" or a sub-folder of data/ like "batch2/day1": no dots, no leading "/", so no ".."
-    folder: str = Field(default="", max_length=200, pattern=r"^([\w\- ]+(/[\w\- ]+)*)?$")
+    # "" (all of data/) or a sub-folder of it, see FOLDER_PATTERN
+    folder: str = Field(default="", max_length=200, pattern=FOLDER_PATTERN)
     dry_run: bool = False
 
 

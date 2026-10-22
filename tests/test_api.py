@@ -152,6 +152,18 @@ def test_list_imports_adds_status_of_tracked_jobs(monkeypatch):
     ]
 
 
+def test_list_folders_shows_importable_folders_in_data(tmp_path, monkeypatch):
+    monkeypatch.setattr("main.default_data_dir", lambda: str(tmp_path))
+    (tmp_path / "kits").mkdir()
+    (tmp_path / "chest" / "day1").mkdir(parents=True)
+    (tmp_path / "copy (1)").mkdir()   # brackets: the import would refuse it, so it's hidden
+
+    response = client.get("/api/folders")
+
+    assert response.status_code == 200
+    assert response.json() == ["chest", "chest/day1", "kits"]
+
+
 def test_start_import_rejects_folder_outside_data():
     response = client.post("/api/imports", json={"folder": "../secret"})
     assert response.status_code == 422
