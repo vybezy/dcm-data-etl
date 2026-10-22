@@ -110,6 +110,7 @@ def log_db_event(
         level: str,
         message: str,
         exc: Exception = None,
+        stacklevel: int = 1,
 ):
     """
     writes one event to dicom_logger, with where it was called from.
@@ -119,7 +120,10 @@ def log_db_event(
     if not options.session_id:
         return
 
-    frame = inspect.currentframe().f_back
+    frame = inspect.currentframe()
+    for _ in range(stacklevel):
+        frame = frame.f_back
+
     caller_module = inspect.getmodule(frame)  # can be None
     module = caller_module.__name__ if caller_module else "unknown"
     funcname = frame.f_code.co_name
