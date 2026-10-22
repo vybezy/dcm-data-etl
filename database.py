@@ -4,11 +4,13 @@ event logging and settings.
 """
 import inspect
 import multiprocessing
+import os
 import socket
 import threading
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
 import psycopg2
@@ -58,6 +60,23 @@ def create_import_session() -> int:
         return cur.fetchone()[0]
 
 
+def short_path(file_path: str, base_folder: str) -> str:
+    if not file_path:
+        return ""
+
+    parts = Path(file_path).parts
+    lowered = [part.lower() for part in parts]
+    if "data" in lowered:
+        start = len(lowered) - 1 - lowered[::-1].index("data")
+        return os.path.join(*parts[start:])
+
+    try:
+        return os.path.relpath(file_path, os.path.dirname(os.path.realpath(base_folder)))
+
+    except ValueError:
+        return file_path
+
+
 def log_db_event(
         conn,
         options: ImportOptions,
@@ -95,7 +114,7 @@ def log_db_event(
             options.session_id,
             datetime.now(timezone.utc),
             level,
-            file_path[:100],
+            short_path(file_path, options.base_folder)[-100:],
             message,
             module,
             funcname,
