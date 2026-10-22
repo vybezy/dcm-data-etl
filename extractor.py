@@ -163,9 +163,10 @@ def extract_and_upsert_patient(conn, dataset: Dataset, sha: str) -> int:
     extracts patient demographics and returns the patient_id.
     """
     mrn = str(dataset.get("PatientID", f"UNKNOWN_{sha[:8]}"))
-    name = str(dataset.get("PatientName", "ANONYMOUS"))
+    # anonymised files often keep these fields but leave them empty: treat empty like missing
+    name = str(dataset.get("PatientName") or "").strip() or "ANONYMOUS"
     birth_date = parse_dicom_date(dataset.get("PatientBirthDate", None))
-    sex = dataset.get("PatientSex", None)
+    sex = str(dataset.get("PatientSex") or "").strip() or None
 
     with conn.cursor() as cur:
         cur.execute("""
