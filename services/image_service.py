@@ -37,6 +37,7 @@ def get_png(file_id: int, window: str) -> bytes:
 def to_grid(info: dict) -> np.ndarray:
     if info["transfer_syntax_uid"] not in RAW_SYNTAXES:
         raise UnsupportedImageError("compressed images are not supported")
+
     if (info["samples_per_pixel"] or 1) != 1 or info["bits_allocated"] not in (8, 16):
         raise UnsupportedImageError("only grayscale 8 or 16 bit images are supported")
 
@@ -60,6 +61,7 @@ def to_grid(info: dict) -> np.ndarray:
 def to_grey(grid: np.ndarray, window: str) -> np.ndarray:
     if window == "auto":
         low, high = grid.min(), grid.max()   # darkest pixel -> black, brightest -> white
+
     else:
         center, width = WINDOWS[window]
         low, high = center - width / 2, center + width / 2

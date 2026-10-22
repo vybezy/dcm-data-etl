@@ -18,7 +18,7 @@ job_lock = Lock()
 # for imports run from the cli or before the api was restarted
 _UNTRACKED = {"status": "unknown", "total_files": None}
 
-# "" or a sub-folder of data/ like "batch2/day1": no dots and no leading "/", so no ".."
+# "" or a sub-folder of data/ like "batch/day": no dots and no leading "/", so no ".."
 # (api/schemas.py checks requests with this same pattern)
 FOLDER_PATTERN = r"^([\w\- ]+(/[\w\- ]+)*)?$"
 
@@ -32,7 +32,7 @@ def forget_jobs() -> None:
 
 
 def list_folders() -> list[str]:
-    # every folder inside data/ that can be imported, as "kits" or "batch2/day1"
+    # every folder inside data/ that can be imported, as "kits" or "batch/day"
     data_dir = os.path.realpath(cli.default_data_dir())
     folders = []
     for root, dirs, _ in os.walk(data_dir):
@@ -41,12 +41,12 @@ def list_folders() -> list[str]:
             # names the import would refuse (dots, brackets...) are left out of the list
             if re.fullmatch(FOLDER_PATTERN, relative):
                 folders.append(relative)
+
     return sorted(folders)
 
 
 def list_imports(limit: int) -> list[dict]:
     sessions = imports_repository.list_sessions(limit)
-    # counts come from the database, status and total from memory
     return [{**session, **_jobs.get(session["id"], _UNTRACKED)} for session in sessions]
 
 
@@ -86,4 +86,5 @@ def _resolve_folder(folder: str) -> str:
     # second check after the schema pattern: the folder must stay inside data/
     if os.path.commonpath([data_dir, target]) != data_dir or not os.path.isdir(target):
         raise NotFoundError(f"folder '{folder}' not found in data/")
+
     return target

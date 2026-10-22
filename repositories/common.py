@@ -9,4 +9,5 @@ def fetch_all(sql: str, params: tuple) -> list[dict]:
         cur.execute(sql, params)
         columns = [col.name for col in cur.description]
         rows = cur.fetchall()
+
     return [dict(zip(columns, row)) for row in rows]
