@@ -13,6 +13,7 @@ from typing import Optional
 
 from azure.storage.blob import BlobServiceClient
 
+from config import env_flag
 from logger import logger, pretty_log
 
 
@@ -21,7 +22,7 @@ PROFILE_ENV_VAR = "DICOM_PROFILE"
 
 def profiling_enabled() -> bool:
     """profiling is opt-in: set DICOM_PROFILE=1 (or true/yes) to turn it on."""
-    return os.getenv(PROFILE_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
+    return env_flag(PROFILE_ENV_VAR)
 
 
 def profiler(func):
