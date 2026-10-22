@@ -18,6 +18,7 @@ from processor import (
     get_scan_date,
     check_scan_age,
     read_dicom_header,
+    looks_like_dicom,
 )
 from utils import ImportOptions, ImportErrorWithContext
 
@@ -191,6 +192,31 @@ def test_compute_sha256_differs_for_different_content(tmp_path):
 
 
 # ------------------------- process_file: validation paths -------------------------
+
+
+def write_file(path, with_marker):
+    path.write_bytes(b"\x00" * 128 + (b"DICM" if with_marker else b"NOPE") + b"rest")
+    return str(path)
+
+
+@pytest.mark.parametrize("name, with_marker, expected", [
+    ("scan.dcm", False, True),
+    ("SCAN.DCM", False, True),
+    ("notes.txt", False, False),
+    ("renamed.txt", True, True),
+    ("IM00001", True, True),
+    ("IM00002", False, False),
+    ("1.2.840.10008.5.1", True, True),
+    ("export.bin", False, False),
+])
+def test_looks_like_dicom(tmp_path, name, with_marker, expected):
+    assert looks_like_dicom(write_file(tmp_path / name, with_marker)) is expected
+
+
+def test_looks_like_dicom_short_file_without_extension(tmp_path):
+    f = tmp_path / "tiny"
+    f.write_bytes(b"DICM")
+    assert looks_like_dicom(str(f)) is False
 
 
 def test_process_file_skips_non_dcm(tmp_path, mock_db):
