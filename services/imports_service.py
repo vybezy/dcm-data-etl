@@ -32,6 +32,17 @@ def forget_jobs() -> None:
     _jobs.clear()
 
 
+def take_import_lock(busy_message: str):
+    if is_running():
+        raise ConflictError(busy_message)
+
+    lock = acquire_import_lock()
+    if lock is None:
+        raise ConflictError(busy_message)
+
+    return lock
+
+
 def list_folders() -> list[str]:
     # every folder inside data/ that can be imported, as "kits" or "batch/day"
     data_dir = os.path.realpath(cli.default_data_dir())
@@ -56,13 +67,7 @@ def start_import(folder: str, dry_run: bool) -> dict:
 
     # check + mark as running in one step, so two requests can't both start
     with job_lock:
-        if is_running():
-            raise ConflictError("an import is already running")
-
-        lock = acquire_import_lock()
-        if lock is None:
-            raise ConflictError("an import or a reset is already running")
-
+        lock = take_import_lock("an import or a reset is already running")
         try:
             db_init(reset_tables=False, logger=logger)
             options = cli.build_options(base_folder, dry_run=dry_run)

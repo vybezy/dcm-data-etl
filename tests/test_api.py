@@ -134,7 +134,6 @@ def lock(request):
     acquired = getattr(request, "param", "lock")
     with patch("services.imports_service.acquire_import_lock", return_value=acquired), \
          patch("services.imports_service.release_import_lock") as imports_release, \
-         patch("services.admin_service.acquire_import_lock", return_value=acquired), \
          patch("services.admin_service.release_import_lock") as admin_release:
         yield imports_release, admin_release
 
