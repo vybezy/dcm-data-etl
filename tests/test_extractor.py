@@ -185,6 +185,20 @@ def test_upsert_patient_missing_fields_use_fallbacks():
     assert sex is None
 
 
+def test_upsert_patient_empty_fields_are_treated_as_missing():
+    ds = Dataset()
+    ds.PatientID = "MRN1"
+    ds.PatientName = ""
+    ds.PatientSex = ""
+    conn, cur = make_mock_conn(fetchone_value=(1,))
+
+    extract_and_upsert_patient(conn, ds, "abcdef1234567890")
+
+    _, name, _, sex = cur.execute.call_args[0][1]
+    assert name == "ANONYMOUS"
+    assert sex is None
+
+
 def test_upsert_study_requires_study_uid():
     conn, _ = make_mock_conn()
 
