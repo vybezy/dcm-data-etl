@@ -60,13 +60,13 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
     except ValueError as err:
         raise ImportErrorWithContext(
             f"Candidate path {candidate_real}"
-            f"is not on the same filesystem as base {base_real}"
+            f" is not on the same filesystem as base {base_real}"
         ) from err
 
     if common != base_real:
         raise ImportErrorWithContext(
             f"Path traversal or escape detected: {candidate_real}"
-            f"is not under {base_real}"
+            f" is not under {base_real}"
         )
 
     return candidate_real
