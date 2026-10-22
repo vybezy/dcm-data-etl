@@ -157,12 +157,20 @@ def build_metadata_json(dataset: Dataset) -> str:
     return json.dumps(dataset_to_dict(dataset))
 
 
+def unknown_patient_id(dataset: Dataset, sha: str) -> str:
+    study_uid = str(dataset.get("StudyInstanceUID") or "").strip()
+    if not study_uid:
+        return f"UNKNOWN_{sha[:8]}"
+
+    return f"UNKNOWN_{hashlib.sha256(study_uid.encode()).hexdigest()[:16]}"
+
+
 @profiler
 def extract_and_upsert_patient(conn, dataset: Dataset, sha: str) -> int:
     """
     extracts patient demographics and returns the patient_id.
     """
-    mrn = str(dataset.get("PatientID", f"UNKNOWN_{sha[:8]}"))
+    mrn = str(dataset.get("PatientID") or "").strip() or unknown_patient_id(dataset, sha)
     # anonymised files often keep these fields but leave them empty: treat empty like missing
     name = str(dataset.get("PatientName") or "").strip() or "ANONYMOUS"
     birth_date = parse_dicom_date(dataset.get("PatientBirthDate", None))

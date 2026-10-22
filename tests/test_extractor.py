@@ -199,6 +199,25 @@ def test_upsert_patient_empty_fields_are_treated_as_missing():
     assert sex is None
 
 
+def test_upsert_patient_without_id_groups_files_by_study():
+    first, second, other = Dataset(), Dataset(), Dataset()
+    first.PatientID = ""
+    first.StudyInstanceUID = "1.2.3"
+    second.StudyInstanceUID = "1.2.3"
+    other.StudyInstanceUID = "4.5.6"
+    conn, cur = make_mock_conn(fetchone_value=(1,))
+
+    mrns = []
+    for ds, sha in ((first, "aaaaaaaa11"), (second, "bbbbbbbb22"), (other, "cccccccc33")):
+        extract_and_upsert_patient(conn, ds, sha)
+        mrns.append(cur.execute.call_args[0][1][0])
+
+    assert mrns[0] == mrns[1]
+    assert mrns[0] != mrns[2]
+    assert mrns[0].startswith("UNKNOWN_")
+    assert len(mrns[0]) <= 64
+
+
 def test_upsert_study_requires_study_uid():
     conn, _ = make_mock_conn()
 
