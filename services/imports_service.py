@@ -6,6 +6,7 @@ from threading import Lock, Thread
 
 import main as cli
 import processor
+from database import acquire_import_lock, release_import_lock
 from db_init import db_init
 from logger import logger
 from repositories import imports_repository
@@ -58,17 +59,27 @@ def start_import(folder: str, dry_run: bool) -> dict:
         if is_running():
             raise ConflictError("an import is already running")
 
-        db_init(reset_tables=False, logger=logger)
-        options = cli.build_options(base_folder, dry_run=dry_run)
-        files = processor.list_files(base_folder)
+        lock = acquire_import_lock()
+        if lock is None:
+            raise ConflictError("an import or a reset is already running")
+
+        try:
+            db_init(reset_tables=False, logger=logger)
+            options = cli.build_options(base_folder, dry_run=dry_run)
+            files = processor.list_files(base_folder)
+
+        except Exception:
+            release_import_lock(lock)
+            raise
+
         _jobs[options.session_id] = {"status": "running", "total_files": len(files)}
         job = {"id": options.session_id, **_jobs[options.session_id]}
 
-    Thread(target=_run, args=(base_folder, options, files), daemon=True).start()
+    Thread(target=_run, args=(base_folder, options, files, lock), daemon=True).start()
     return job
 
 
-def _run(base_folder: str, options, files: list) -> None:
+def _run(base_folder: str, options, files: list, lock) -> None:
     # runs in the background thread. no request is waiting, so errors only get logged
     try:
         processor.scan_and_import(base_folder, options, file_list=files)
@@ -77,6 +88,9 @@ def _run(base_folder: str, options, files: list) -> None:
     except Exception:
         logger.exception("background import %s failed", options.session_id)
         _jobs[options.session_id]["status"] = "failed"
+
+    finally:
+        release_import_lock(lock)
 
 
 def _resolve_folder(folder: str) -> str:

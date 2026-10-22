@@ -1,5 +1,6 @@
 """reset rules: never reset while an import is running."""
 
+from database import acquire_import_lock, release_import_lock
 from repositories import admin_repository
 from services import imports_service
 from services.errors import ConflictError
@@ -11,5 +12,13 @@ def reset_database() -> None:
         if imports_service.is_running():
             raise ConflictError("cannot reset while an import is running")
 
-        admin_repository.reset_tables()
-        imports_service.forget_jobs()
+        lock = acquire_import_lock()
+        if lock is None:
+            raise ConflictError("cannot reset while an import is running")
+
+        try:
+            admin_repository.reset_tables()
+            imports_service.forget_jobs()
+
+        finally:
+            release_import_lock(lock)

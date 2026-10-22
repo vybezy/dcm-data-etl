@@ -134,3 +134,28 @@ def test_short_path_outside_data_starts_at_the_imported_folder(tmp_path):
 
 def test_short_path_of_nothing_is_empty():
     assert database.short_path("", "data") == ""
+
+
+# ------------------------- import lock -------------------------
+
+
+def test_acquire_import_lock_returns_the_connection_when_free(no_config):
+    conn, _ = make_conn(fetchone=(True,))
+    with patch("database.psycopg2.connect", return_value=conn):
+        assert database.acquire_import_lock() is conn
+
+    conn.close.assert_not_called()
+
+
+def test_acquire_import_lock_returns_none_when_busy(no_config):
+    conn, _ = make_conn(fetchone=(False,))
+    with patch("database.psycopg2.connect", return_value=conn):
+        assert database.acquire_import_lock() is None
+
+    conn.close.assert_called_once()
+
+
+def test_release_import_lock_closes_the_connection():
+    conn = MagicMock()
+    database.release_import_lock(conn)
+    conn.close.assert_called_once()
