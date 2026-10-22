@@ -1,4 +1,4 @@
-/* colours and sizes in one place, so the whole look can be changed here */
+
 :root {
   --navy: #172033;
   --navy-hover: #26324d;
@@ -7,6 +7,10 @@
   --muted: #6b7280;
   --sidebar-wide: 250px;
   --sidebar-narrow: 80px;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 * {
@@ -22,15 +26,14 @@ body {
   background: linear-gradient(160deg, #eef4ff, #d6e4ff);
 }
 
-/* icons are a font: each name ("dashboard") turns into a picture. without internet the
-   font can't load and the name shows as text, so keep each icon to one icon-sized box */
+/* icons are a font: each name ("dashboard") turns into a picture. */
 .material-symbols-rounded {
   width: 24px;
   flex-shrink: 0;
   overflow: hidden;
 }
 
-/* ---------- sidebar: a dark rounded card fixed on the left ---------- */
+/* sidebar: a dark rounded box fixed on the left  */
 
 .sidebar {
   position: fixed;
@@ -122,7 +125,7 @@ body {
   color: white;
 }
 
-/* collapsed: the words fade out, the icons stay */
+/* collapsed: the words fade out, icons stay */
 .label {
   transition: opacity 0.2s ease;
 }
@@ -131,7 +134,7 @@ body {
   opacity: 0;
 }
 
-/* ---------- main area: starts right of the sidebar and follows its width ---------- */
+/* main area: starts right of the sidebar and follows its width  */
 
 main {
   margin-left: calc(var(--sidebar-wide) + 32px);
@@ -158,7 +161,7 @@ h2 {
   display: block;
 }
 
-/* ---------- dashboard cards ---------- */
+/* dashboard cards */
 
 .cards {
   display: flex;
@@ -187,7 +190,7 @@ h2 {
   font-weight: 600;
 }
 
-/* ---------- messages ---------- */
+/* messages */
 
 .muted {
   color: var(--muted);
@@ -200,4 +203,130 @@ h2 {
 
 .error:empty {
   display: none;
+}
+
+/* browse: breadcrumb and tables */
+
+.breadcrumb {
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+
+.breadcrumb button {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.breadcrumb button:hover {
+  text-decoration: underline;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(23, 32, 51, 0.08);
+}
+
+th,
+td {
+  padding: 12px 16px;
+  text-align: left;
+}
+
+th {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: #f8fafc;
+}
+
+tbody tr {
+  border-top: 1px solid #eef2f7;
+  cursor: pointer;
+}
+
+tbody tr:hover {
+  background: #eef4ff;
+}
+
+/* browse: image viewer */
+
+.viewer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+#slice-image {
+  width: 512px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;   /* keeps the slice's proportions inside the square */
+  background: black;
+  border-radius: 12px;
+}
+
+.viewer-side {
+  min-width: 260px;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(23, 32, 51, 0.08);
+}
+
+.slice-info {
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.slice-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.slice-nav input {
+  flex: 1;
+}
+
+.slice-nav button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: #eef2f7;
+  cursor: pointer;
+}
+
+.window-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.window-buttons button {
+  padding: 6px 12px;
+  border: 1px solid #d0d7e2;
+  border-radius: 8px;
+  background: white;
+  font: inherit;
+  cursor: pointer;
+}
+
+.window-buttons button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
 }
