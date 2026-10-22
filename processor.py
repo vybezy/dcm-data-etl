@@ -71,6 +71,24 @@ def sanitize_and_validate_path(candidate: str, base_folder: str) -> str:
 
     return candidate_real
 
+def has_dicom_marker(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            header = f.read(132)
+
+    except OSError:
+        return False
+
+    return header[128:132] == b"DICM"
+
+
+def looks_like_dicom(path: str) -> bool:
+    if path.lower().endswith(".dcm"):
+        return True
+
+    return has_dicom_marker(path)
+
+
 # DICOM date tags checked in order of preference when deciding a scan's age
 SCAN_DATE_TAGS = ("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate")
 
@@ -182,8 +200,8 @@ def process_file(path: str, options_dict: dict):
 
         filename = os.path.basename(abs_path)
 
-        if not filename.lower().endswith(".dcm"):
-            reason = "Not a .dcm file"
+        if not looks_like_dicom(abs_path):
+            reason = "Not a DICOM file"
             pretty_log("SKIP", "Skipped file", file=filename, extra=reason)
             log_db_event(conn, options, path, "SKIP", reason)
             result.update(status="skipped", message=reason)
