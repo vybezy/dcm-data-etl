@@ -1,6 +1,7 @@
 """import jobs: checks the folder, runs the pipeline in a background thread, reports progress."""
 
 import os
+import re
 from threading import Lock, Thread
 
 import main as cli
@@ -17,6 +18,10 @@ job_lock = Lock()
 # for imports run from the cli or before the api was restarted
 _UNTRACKED = {"status": "unknown", "total_files": None}
 
+# "" or a sub-folder of data/ like "batch2/day1": no dots and no leading "/", so no ".."
+# (api/schemas.py checks requests with this same pattern)
+FOLDER_PATTERN = r"^([\w\- ]+(/[\w\- ]+)*)?$"
+
 
 def is_running() -> bool:
     return any(job["status"] == "running" for job in _jobs.values())
@@ -24,6 +29,19 @@ def is_running() -> bool:
 
 def forget_jobs() -> None:
     _jobs.clear()
+
+
+def list_folders() -> list[str]:
+    # every folder inside data/ that can be imported, as "kits" or "batch2/day1"
+    data_dir = os.path.realpath(cli.default_data_dir())
+    folders = []
+    for root, dirs, _ in os.walk(data_dir):
+        for name in dirs:
+            relative = os.path.relpath(os.path.join(root, name), data_dir).replace(os.sep, "/")
+            # names the import would refuse (dots, brackets...) are left out of the list
+            if re.fullmatch(FOLDER_PATTERN, relative):
+                folders.append(relative)
+    return sorted(folders)
 
 
 def list_imports(limit: int) -> list[dict]:
