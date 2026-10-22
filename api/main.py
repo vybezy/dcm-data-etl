@@ -43,5 +43,4 @@ app.include_router(imports.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
 
-# last on purpose: anything that isn't /api/... is a file from web/ ("/" -> web/index.html)
 app.mount("/", StaticFiles(directory="web", html=True), name="web")
