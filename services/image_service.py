@@ -21,17 +21,17 @@ RAW_SYNTAXES = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1", None}
 
 
 def get_png(file_id: int, window: str) -> bytes:
-    info = image_repository.get_pixel_data(file_id)   # step 1: read the bytes
+    info = image_repository.get_pixel_data(file_id)   # read the bytes
     if info is None:
         raise NotFoundError(f"no pixel data stored for instance {file_id}")
 
-    grid = to_grid(info)                               # step 2: bytes -> grid of numbers
-    grey = to_grey(grid, window)                       # step 3: numbers -> grey shades
+    grid = to_grid(info)                               # bytes -> grid of numbers
+    grey = to_grey(grid, window)                       # numbers -> grey shades
 
     if info["photometric_interpretation"] == "MONOCHROME1":
-        grey = 255 - grey   # this type stores bright as low numbers, so flip it
+        grey = 255 - grey   # this type stores bright as low numbers, so we must flip
 
-    return to_png(grey)                                # step 4: grid -> png picture
+    return to_png(grey)                                # grid -> png picture
 
 
 def to_grid(info: dict) -> np.ndarray:
@@ -40,7 +40,6 @@ def to_grid(info: dict) -> np.ndarray:
     if (info["samples_per_pixel"] or 1) != 1 or info["bits_allocated"] not in (8, 16):
         raise UnsupportedImageError("only grayscale 8 or 16 bit images are supported")
 
-    # how to read the bytes: "<" little endian, "i" signed / "u" unsigned, 1 or 2 bytes each
     kind = "i" if info["pixel_representation"] == 1 else "u"
     dtype = f"<{kind}{info['bits_allocated'] // 8}"
     numbers = np.frombuffer(info["pixel_data"], dtype=dtype)
@@ -74,6 +73,6 @@ def to_grey(grid: np.ndarray, window: str) -> np.ndarray:
 
 
 def to_png(grey: np.ndarray) -> bytes:
-    buffer = BytesIO()   # a file that lives in memory, so nothing touches the disk
+    buffer = BytesIO()
     Image.fromarray(grey).save(buffer, format="PNG")
     return buffer.getvalue()

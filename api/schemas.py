@@ -20,11 +20,11 @@ class Settings(BaseModel):
 class ImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # "" (all of data/) or a sub-folder of it, see FOLDER_PATTERN
+    # "" , (all of data/) or a sub-folder
     folder: str = Field(default="", max_length=200, pattern=FOLDER_PATTERN)
     dry_run: bool = False
 
 
 class ResetRequest(BaseModel):
-    # must be exactly "RESET", so a stray click or a buggy script can't wipe the database
+    # must be exactly "RESET"
     confirm: Literal["RESET"]
