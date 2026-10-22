@@ -1,3 +1,4 @@
+import os
 import socket
 from unittest.mock import MagicMock, patch
 
@@ -108,3 +109,28 @@ def test_log_db_event_survives_unknown_caller_module():
 
     params = cur.execute.call_args[0][1]
     assert params[5] == "unknown"  # log_module
+
+
+# ------------------------- short_path -------------------------
+
+
+def test_short_path_starts_at_the_data_folder():
+    path = os.path.join("home", "maria", "DicomProject", "data", "kits", "instance-0004.dcm")
+
+    result = database.short_path(path, "anything")
+
+    assert result == os.path.join("data", "kits", "instance-0004.dcm")
+
+
+def test_short_path_outside_data_starts_at_the_imported_folder(tmp_path):
+    samples = tmp_path / "samples"
+    samples.mkdir()
+    file = samples / "instance-0001.dcm"
+
+    result = database.short_path(str(file), str(samples))
+
+    assert result == os.path.join("samples", "instance-0001.dcm")
+
+
+def test_short_path_of_nothing_is_empty():
+    assert database.short_path("", "data") == ""
