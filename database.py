@@ -39,6 +39,32 @@ def db_connection():
         conn.close()
 
 
+IMPORT_LOCK_ID = 7740001
+
+
+def acquire_import_lock():
+    conn = psycopg2.connect(**config())
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s);", (IMPORT_LOCK_ID,))
+            locked = cur.fetchone()[0]
+
+    except Exception:
+        conn.close()
+        raise
+
+    if locked:
+        return conn
+
+    conn.close()
+    return None
+
+
+def release_import_lock(conn) -> None:
+    conn.close()
+
+
 def create_import_session() -> int:
     """
     starts a new import session and returns its id.

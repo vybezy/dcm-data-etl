@@ -23,7 +23,7 @@ from pydicom.uid import ExplicitVRLittleEndian, CTImageStorage, generate_uid
 from config import config
 from db_init import db_init
 from logger import logger
-from database import create_import_session
+from database import acquire_import_lock, create_import_session, release_import_lock
 from processor import process_file, scan_and_import
 from utils import ImportOptions
 
@@ -342,3 +342,17 @@ def test_deleting_an_instance_deletes_its_pixels(db, tmp_path):
     db.commit()
 
     assert scalar(db, "SELECT count(*) FROM dicom_pixel_data") == 0
+
+
+def test_import_lock_is_shared_between_connections(db):
+    first = acquire_import_lock()
+    try:
+        assert first is not None
+        assert acquire_import_lock() is None
+
+    finally:
+        release_import_lock(first)
+
+    again = acquire_import_lock()
+    assert again is not None
+    release_import_lock(again)

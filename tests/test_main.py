@@ -44,11 +44,32 @@ def test_resolve_input_missing_path(tmp_path, pattern):
 def fake_pipeline():
     """Replaces every database / cloud call made by main()."""
     with patch("main.db_init") as db_init, \
+         patch("main.acquire_import_lock", return_value="lock"), \
+         patch("main.release_import_lock"), \
          patch("main.create_import_session", return_value=1), \
          patch("main.load_settings_from_db", return_value={"workers": "4"}), \
          patch("main.download_dicom_from_azure"), \
          patch("main.scan_and_import", return_value=[{"status": "inserted"}]) as scan:
         yield db_init, scan
+
+
+def test_main_returns_3_when_another_import_or_reset_is_running(tmp_path, fake_pipeline):
+    db_init, scan = fake_pipeline
+    with patch("main.acquire_import_lock", return_value=None):
+        assert main.main([str(tmp_path)]) == 3
+
+    db_init.assert_not_called()
+    scan.assert_not_called()
+
+
+def test_main_releases_the_lock_even_when_the_import_crashes(tmp_path, fake_pipeline):
+    _, scan = fake_pipeline
+    scan.side_effect = RuntimeError("boom")
+    with patch("main.release_import_lock") as release:
+        with pytest.raises(RuntimeError):
+            main.main([str(tmp_path)])
+
+    release.assert_called_once_with("lock")
 
 
 def test_main_missing_path_returns_2_and_touches_nothing(tmp_path, fake_pipeline):

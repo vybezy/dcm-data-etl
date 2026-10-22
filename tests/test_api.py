@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
@@ -128,6 +129,16 @@ def test_list_instances_returns_slices():
 
 
 # imports
+@pytest.fixture
+def lock(request):
+    acquired = getattr(request, "param", "lock")
+    with patch("services.imports_service.acquire_import_lock", return_value=acquired), \
+         patch("services.imports_service.release_import_lock") as imports_release, \
+         patch("services.admin_service.acquire_import_lock", return_value=acquired), \
+         patch("services.admin_service.release_import_lock") as admin_release:
+        yield imports_release, admin_release
+
+
 class RunNow:
     """stand-in for Thread that runs the target straight away, so the test doesn't race it."""
 
@@ -169,7 +180,7 @@ def test_start_import_rejects_folder_outside_data():
     assert response.status_code == 422
 
 
-def test_start_import_returns_202_and_runs_in_background(monkeypatch):
+def test_start_import_returns_202_and_runs_in_background(monkeypatch, lock):
     monkeypatch.setattr(imports_service, "_jobs", {})
 
     with patch("services.imports_service.db_init"), \
@@ -183,6 +194,17 @@ def test_start_import_returns_202_and_runs_in_background(monkeypatch):
     assert response.json() == {"id": 7, "status": "running", "total_files": 2}
     scan.assert_called_once()
     assert imports_service._jobs[7]["status"] == "finished"
+    lock[0].assert_called_once_with("lock")
+
+
+@pytest.mark.parametrize("lock", [None], indirect=True)
+def test_start_import_returns_409_when_the_cli_is_importing(monkeypatch, lock):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    response = client.post("/api/imports", json={})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "an import or a reset is already running"}
 
 
 def test_start_import_returns_409_when_one_is_running(monkeypatch):
@@ -202,7 +224,7 @@ def test_reset_requires_typed_confirmation():
     reset.assert_not_called()
 
 
-def test_reset_drops_tables_when_confirmed(monkeypatch):
+def test_reset_drops_tables_when_confirmed(monkeypatch, lock):
     monkeypatch.setattr(imports_service, "_jobs", {})
 
     with patch("repositories.admin_repository.reset_tables") as reset:
@@ -210,6 +232,19 @@ def test_reset_drops_tables_when_confirmed(monkeypatch):
 
     assert response.status_code == 200
     reset.assert_called_once()
+    lock[1].assert_called_once_with("lock")
+
+
+@pytest.mark.parametrize("lock", [None], indirect=True)
+def test_reset_returns_409_when_the_cli_is_importing(monkeypatch, lock):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    with patch("repositories.admin_repository.reset_tables") as reset:
+        response = client.post("/api/admin/reset", json={"confirm": "RESET"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "cannot reset while an import is running"}
+    reset.assert_not_called()
 
 
 # images

@@ -10,7 +10,8 @@ Examples:
     python main.py ./data --reset           # DROP and recreate all tables first
                                             # (or set RESET_TABLES=true in .env)
 
-Exit codes: 0 = no errors, 1 = at least one file errored, 2 = bad input path.
+Exit codes: 0 = no errors, 1 = at least one file errored, 2 = bad input path,
+            3 = another import or a reset is running.
 """
 import argparse
 import glob
@@ -18,7 +19,8 @@ import os
 import sys
 
 from config import DEFAULT_SETTINGS, env_flag, is_true
-from database import create_import_session, load_settings_from_db
+from database import (acquire_import_lock, create_import_session, load_settings_from_db,
+                      release_import_lock)
 from db_init import db_init
 from logger import logger
 from processor import scan_and_import
@@ -120,7 +122,7 @@ def build_options(base_folder: str, workers: int = None, dry_run: bool = False) 
 def main(argv=None) -> int:
     """
     runs one import and returns the exit code
-    (0 ok, 1 a file errored, 2 bad path).
+    (0 ok, 1 a file errored, 2 bad path, 3 busy).
     """
     args = parse_args(argv)
 
@@ -133,22 +135,31 @@ def main(argv=None) -> int:
         logger.error("Path not found or no files match: %s", args.path)
         return 2
 
-    # reset when asked on the command line / RESET_TABLES=true in .env
-    reset = args.reset or env_flag("RESET_TABLES")
-    if reset:
-        logger.warning("reset requested: dropping and recreating all pipeline tables")
+    lock = acquire_import_lock()
+    if lock is None:
+        logger.error("Another import or a reset is running; try again when it has finished")
+        return 3
 
-    db_init(reset_tables=reset, logger=logger)
+    try:
+        # reset when asked on the command line / RESET_TABLES=true in .env
+        reset = args.reset or env_flag("RESET_TABLES")
+        if reset:
+            logger.warning("reset requested: dropping and recreating all pipeline tables")
 
-    options = build_options(base_folder, workers=args.workers, dry_run=args.dry_run)
+        db_init(reset_tables=reset, logger=logger)
 
-    if file_list is None:
-        logger.info("Importing all files from folder: %s", base_folder)
+        options = build_options(base_folder, workers=args.workers, dry_run=args.dry_run)
 
-    else:
-        logger.info("Importing %d specific file(s)", len(file_list))
+        if file_list is None:
+            logger.info("Importing all files from folder: %s", base_folder)
 
-    results = scan_and_import(base_folder, options, file_list=file_list)
+        else:
+            logger.info("Importing %d specific file(s)", len(file_list))
+
+        results = scan_and_import(base_folder, options, file_list=file_list)
+
+    finally:
+        release_import_lock(lock)
 
     failed = [r for r in results if not r or r.get("status") == "error"]
     if failed:
