@@ -18,7 +18,7 @@ import glob
 import os
 import sys
 
-from config import DEFAULT_SETTINGS, env_flag, is_true
+from config import env_flag, typed_settings
 from database import (acquire_import_lock, create_import_session, load_settings_from_db,
                       release_import_lock)
 from db_init import db_init
@@ -98,24 +98,23 @@ def build_options(base_folder: str, workers: int = None, dry_run: bool = False) 
     """
     session_id = create_import_session()
 
-    # values from the database get stored over DEFAULT_SETTINGS
-    settings = {**DEFAULT_SETTINGS, **load_settings_from_db()}
+    settings = typed_settings(load_settings_from_db())
 
     if workers is None:
-        workers = int(settings["workers"])
+        workers = settings["workers"]
 
     logger.info("Session ID: %s", session_id)
     logger.info("Settings loaded: %s", settings)
 
     return ImportOptions(
         base_folder=base_folder,
-        min_size=int(settings["min_file_size"]),
-        max_size=int(settings["max_file_size"]),
-        max_file_age_months=int(settings["max_file_age_months"]),
+        min_size=settings["min_file_size"],
+        max_size=settings["max_file_size"],
+        max_file_age_months=settings["max_file_age_months"],
         workers=workers,
         dry_run=dry_run,
         session_id=session_id,
-        store_pixel_data=is_true(settings["store_pixel_data"]),
+        store_pixel_data=settings["store_pixel_data"],
     )
 
 
