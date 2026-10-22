@@ -18,22 +18,26 @@ def list_patients(limit: int, offset: int) -> list[dict]:
     patients = browse_repository.list_patients(limit, offset)
     for patient in patients:
         patient["patient_name"] = mask_name(patient["patient_name"])
+
     return patients
 
 
 def list_studies(patient_id: int) -> list[dict]:
     if not browse_repository.patient_exists(patient_id):
         raise NotFoundError(f"patient {patient_id} not found")
+
     return browse_repository.list_studies(patient_id)
 
 
 def list_series(study_id: int) -> list[dict]:
     if not browse_repository.study_exists(study_id):
         raise NotFoundError(f"study {study_id} not found")
+
     return browse_repository.list_series(study_id)
 
 
 def list_instances(series_id: int) -> list[dict]:
     if not browse_repository.series_exists(series_id):
         raise NotFoundError(f"series {series_id} not found")
+
     return browse_repository.list_instances(series_id)

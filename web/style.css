@@ -1,4 +1,6 @@
 
+/* ------------------------- main theme ------------------------- */
+
 :root {
   --navy: #172033;
   --navy-hover: #26324d;
@@ -33,7 +35,7 @@ body {
   overflow: hidden;
 }
 
-/* sidebar: a dark rounded box fixed on the left  */
+/* ------------------------- sidebar ------------------------- */
 
 .sidebar {
   position: fixed;
@@ -96,6 +98,8 @@ body {
   transform: rotate(180deg);
 }
 
+/* ------------------------- menu ------------------------- */
+
 .menu {
   display: flex;
   flex-direction: column;
@@ -134,7 +138,7 @@ body {
   opacity: 0;
 }
 
-/* main area: starts right of the sidebar and follows its width  */
+/* ------------------------- main ------------------------- */
 
 main {
   margin-left: calc(var(--sidebar-wide) + 32px);
@@ -161,7 +165,7 @@ h2 {
   display: block;
 }
 
-/* dashboard cards */
+/* ------------------------- dashboard cards ------------------------- */
 
 .cards {
   display: flex;
@@ -190,7 +194,7 @@ h2 {
   font-weight: 600;
 }
 
-/* messages */
+/* ------------------------- messages ------------------------- */
 
 .muted {
   color: var(--muted);
@@ -214,7 +218,7 @@ h2 {
   display: none;
 }
 
-/* browse: breadcrumb and tables */
+/* ------------------------- browse ------------------------- */
 
 .breadcrumb {
   margin-bottom: 16px;
@@ -259,7 +263,7 @@ tbody tr {
   border-top: 1px solid #eef2f7;
 }
 
-/* only rows that do something when clicked look clickable */
+/* only rows that do something when clicked look 'clickable' */
 tbody tr.clickable {
   cursor: pointer;
 }
@@ -472,7 +476,7 @@ progress {
   accent-color: var(--accent);
 }
 
-/* ---------- settings ---------- */
+/* ------------------------- settings ------------------------- */
 
 .panel-intro {
   margin-bottom: 16px;
@@ -501,7 +505,8 @@ progress {
   cursor: pointer;
 }
 
-/* a normal checkbox restyled as an on/off switch */
+/* ------------------------- checkbox ------------------------- */
+
 .switch {
   appearance: none;
   flex-shrink: 0;
@@ -534,7 +539,8 @@ progress {
   transform: translateX(20px);
 }
 
-/* ---------- reset ---------- */
+/* ------------------------- reset ------------------------- */
+
 
 .panel-danger {
   border: 1px solid #fca5a5;

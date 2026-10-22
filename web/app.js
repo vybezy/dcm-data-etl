@@ -1,5 +1,4 @@
-// sidebar
-
+// ------------------------- sidebar -------------------------
 const sidebar = document.getElementById("sidebar");
 
 // collapse / expand when the round button is clicked, and remember choice
@@ -20,7 +19,7 @@ try {
   // same as above
 }
 
-// pages
+// ------------------------- pages -------------------------
 
 // which function fills each page with data
 const loaders = {
@@ -51,7 +50,7 @@ function showPage() {
   }
 }
 
-// connection w/ api
+// ------------------------- connection w/ api -------------------------
 
 // sends a request and returns the json answer. an error status becomes an exception
 // that carries the api's own message, e.g. "an import is already running"
@@ -101,7 +100,7 @@ function formatBytes(bytes) {
   return (bytes / 1024 / 1024).toFixed(1) + " MB";
 }
 
-// dashboard
+// ------------------------- dashboard -------------------------
 
 async function loadDashboard() {
   const error = document.getElementById("dashboard-error");
@@ -149,7 +148,7 @@ function renderTable(columns, rows, onRowClick) {
   return table;
 }
 
-// browse
+// ------------------------- browse -------------------------
 
 // where the user is: patient -> study -> series -> slices
 const browse = {
@@ -333,7 +332,7 @@ sliceImage.addEventListener("error", () => {
   imageError.textContent = "This slice can't be shown (no pixel data stored, or compressed).";
 });
 
-// import
+// ------------------------- import -------------------------
 
 const importForm = document.getElementById("import-form");
 const importStart = document.getElementById("import-start");
@@ -448,7 +447,7 @@ async function resumeImport() {
   }
 }
 
-// import history
+// ------------------------- import history -------------------------
 
 async function loadHistory() {
   const error = document.getElementById("history-error");
@@ -482,7 +481,7 @@ async function loadHistory() {
   }
 }
 
-// settings
+// ------------------------- settings -------------------------
 
 const settingsSaved = document.getElementById("settings-saved");
 const settingsError = document.getElementById("settings-error");
@@ -540,7 +539,7 @@ document.getElementById("settings-form").addEventListener("submit", async (event
   }
 });
 
-// reset
+// ------------------------- reset -------------------------
 
 const resetConfirm = document.getElementById("reset-confirm");
 const resetButton = document.getElementById("reset-button");
@@ -576,7 +575,7 @@ document.getElementById("reset-form").addEventListener("submit", async (event) =
   }
 });
 
-// start
+// ------------------------- start site -------------------------
 
 window.addEventListener("hashchange", showPage);   // sidebar click / back button
 showPage();                                         // first load
