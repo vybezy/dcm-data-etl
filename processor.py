@@ -163,6 +163,27 @@ def compute_sha256(path: str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+LOG_TITLES = {
+    "ERROR": "Import failed for file",
+    "SKIP": "Skipped file",
+    "DUPLICATE": "Duplicate file",
+    "DRYRUN": "Checked file",
+    "SUCCESS": "Saved to database",
+}
+
+
+def finish(result: dict, conn, options: ImportOptions, path: str, status: str, level: str,
+           reason: str, exc: Exception = None, **fields) -> dict:
+    filename = os.path.basename(path)
+    pretty_log(level, LOG_TITLES[level], file=filename, extra=reason)
+    if exc is not None:
+        logger.debug("Traceback for %s", filename, exc_info=True)
+
+    log_db_event(conn, options, path, level, reason, exc=exc, stacklevel=2)
+    result.update(status=status, message=reason, **fields)
+    return result
+
+
 @profiler
 def process_file(path: str, options_dict: dict):
     """
@@ -190,39 +211,22 @@ def process_file(path: str, options_dict: dict):
             abs_path = sanitize_and_validate_path(path, options.base_folder)
 
         except Exception as e:
-            reason = f"Path validation failed: {e}"
-            pretty_log("ERROR", "Import failed for file", file=path, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(
-                status="invalid", message=reason
-            )
-            return result
+            return finish(result, conn, options, path, "invalid", "ERROR",
+                          f"Path validation failed: {e}")
 
         filename = os.path.basename(abs_path)
 
         if not looks_like_dicom(abs_path):
-            reason = "Not a DICOM file"
-            pretty_log("SKIP", "Skipped file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "SKIP", reason)
-            result.update(status="skipped", message=reason)
-            return result
+            return finish(result, conn, options, path, "skipped", "SKIP", "Not a DICOM file")
 
         if not is_valid_filename(filename):
-            reason = f"Invalid filename: {filename}"
-            pretty_log(
-                "ERROR", "Import failed for file", file=path, extra=reason
-            )
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
+            return finish(result, conn, options, path, "invalid", "ERROR",
+                          f"Invalid filename: {filename}")
 
         st = os.stat(abs_path)
         if st.st_size < options.min_size or st.st_size > options.max_size:
-            reason = f"File size ({st.st_size}) outside allowed range"
-            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
+            return finish(result, conn, options, path, "invalid", "ERROR",
+                          f"File size ({st.st_size}) outside allowed range")
 
         sha = compute_sha256(abs_path)
 
@@ -231,12 +235,9 @@ def process_file(path: str, options_dict: dict):
             cur.execute("SELECT file_id FROM dicom_instances WHERE file_sha256_hash = %s", (sha,))
             row = cur.fetchone()
 
-            if row:
-                reason = f"Duplicate file (SHA256={sha})"
-                pretty_log("DUPLICATE", "Duplicate file", file=filename, extra=reason)
-                log_db_event(conn, options, path, "DUPLICATE", reason)
-                result.update(status="duplicate", message="Duplicate file", db_file_id=row[0])
-                return result
+        if row:
+            return finish(result, conn, options, path, "duplicate", "DUPLICATE",
+                          f"Duplicate file (SHA256={sha})", db_file_id=row[0])
 
         with_pixels = options.store_pixel_data and not options.dry_run
 
@@ -244,57 +245,38 @@ def process_file(path: str, options_dict: dict):
             dataset = read_dicom_header(abs_path, with_pixels=with_pixels)
 
         except Exception as e:
-            reason = f"Unreadable DICOM file: {type(e).__name__}: {e}"
-            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
-            logger.debug("Traceback for %s", filename, exc_info=True)
-            log_db_event(conn, options, path, "ERROR", reason, exc=e)
-            result.update(status="error", message=reason)
-            return result
+            return finish(result, conn, options, path, "error", "ERROR",
+                          f"Unreadable DICOM file: {type(e).__name__}: {e}", exc=e)
 
         reason = check_scan_age(dataset, options.max_file_age_months)
         if reason:
-            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "ERROR", reason)
-            result.update(status="invalid", message=reason)
-            return result
+            return finish(result, conn, options, path, "invalid", "ERROR", reason)
 
         if get_scan_date(dataset)[0] is None:
             logger.warning("No scan date in %s; age check skipped", filename)
 
         if options.dry_run:
-            pretty_log("DRYRUN", "Dry run - not inserted", file=filename)
-            log_db_event(conn, options, path, "DRYRUN", "Dry run - not inserted")
-            result.update(status="dry_run", message="Dry run - not inserted")
-            return result
+            return finish(result, conn, options, path, "dry_run", "DRYRUN",
+                          "Dry run - not inserted")
 
         # delegate parsing and hierarchical database insertion to extractor.py
         try:
             file_id = process_dicom_file(conn, dataset, abs_path, filename, sha, st.st_size)
             conn.commit()
-
-            pretty_log("SUCCESS", f"Successfully imported {filename} (ID: {file_id})", file=filename)
-            log_db_event(conn, options, path, "SUCCESS", f"Imported file (ID={file_id})")
-            result.update(status="inserted", message="Successfully imported", db_file_id=file_id)
-            return result
+            return finish(result, conn, options, path, "inserted", "SUCCESS",
+                          f"Imported file (ID={file_id})", db_file_id=file_id)
 
         except psycopg2.errors.UniqueViolation as e:
             conn.rollback()
-            reason = "Duplicate detected during hierarchical insert"
-            pretty_log("DUPLICATE", "Duplicate file", file=filename, extra=reason)
-            log_db_event(conn, options, path, "DUPLICATE", reason, exc=e)
-            result.update(status="duplicate", message="Duplicate detected during insert")
-            return result
+            return finish(result, conn, options, path, "duplicate", "DUPLICATE",
+                          "Duplicate detected during hierarchical insert", exc=e)
 
         except Exception as e:
             conn.rollback()
-            reason = f"Extraction/Insert error: {type(e).__name__}: {e}"
-            pretty_log("ERROR", "Import failed for file", file=filename, extra=reason)
             # full traceback: hidden from normal console output (DEBUG level),
             # but always stored in dicom_logger.log_stack_trace via exc=e
-            logger.debug("Traceback for %s", filename, exc_info=True)
-            log_db_event(conn, options, path, "ERROR", reason, exc=e)
-            result.update(status="error", message=reason)
-            return result
+            return finish(result, conn, options, path, "error", "ERROR",
+                          f"Extraction/Insert error: {type(e).__name__}: {e}", exc=e)
 
     except Exception as e:
         reason = f"Exception: {e}"
