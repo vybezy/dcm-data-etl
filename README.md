@@ -4,8 +4,13 @@
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
+![FastAPI](https://img.shields.io/badge/FastAPI-REST%20API-009688)
 
-A containerized Python ETL pipeline that ingests DICOM medical files, validates them, extracts their complete metadata hierarchy, and loads everything into a normalized PostgreSQL database that follows the DICOM hierarchy (Patient → Study → Series → Instance), using parallel workers, content-hash deduplication, and structured database logging.
+A containerized Python ETL pipeline that ingests DICOM medical files, validates them, extracts their metadata, and loads everything into a normalized PostgreSQL database that follows the DICOM hierarchy (Patient → Study → Series → Instance) using parallel workers, content-hash deduplication, and structured database logging.
+
+On top of the pipeline back-end sits a FastAPI REST API and a small web interface, where you can start imports and follow the progress, browse the hierarchy, view the CT slices with clinical windows, and change the import settings.
+
+The front-end code (html, JS, css) was written with the help of an AI assistant as a demo client to talk to the API.
 
 ---
 
@@ -13,6 +18,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 
 - [Features](#features)
 - [Architecture](#architecture)
+- [REST API and web interface](#rest-api-and-web-interface)
 - [Database schema](#database-schema)
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
@@ -23,6 +29,7 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 - [Project structure](#project-structure)
 - [Design decisions](#design-decisions)
 - [Security and privacy](#security-and-privacy)
+- [Data sources](#data-sources)
 - [Author](#author)
 
 ---
@@ -33,14 +40,19 @@ A containerized Python ETL pipeline that ingests DICOM medical files, validates 
 |---|---|
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. 4 workers import about 4× faster than sequential ([benchmark](#performance)). |
 | **Relational modelling** | Patient → Study → Series → Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
-| **Complete header capture** | Every DICOM tag (except raw pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
-| **Pixel data storage** | The raw image bytes of every file are stored unchanged in their own table, with a SHA-256 checksum and the tags needed to rebuild the image (dimensions, bit depth, rescale slope/intercept for Hounsfield units). Can be turned off with one setting. |
-| **Input validation** | Checks file extension, filename whitelist and size limits, then rejects scans whose own date (`StudyDate`) is too old or in the future. |
+| **Complete header capture** | Every DICOM tag (except pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
+| **Pixel data storage** | The image bytes of every file are stored unchanged in their own table, with a SHA-256 checksum and the tags needed to rebuild the image (dimensions, bit depth, rescale slope/intercept for Hounsfield units). Can be turned off through settings. |
+| **Input validation** | Recognises DICOM files by their `.dcm` extension or for files without one, by the `DICM` marker in the file header (To make sure DICOM files without an extension aren't skipped); anything else is skipped. Then checks the filename whitelist and size limits, and rejects scans whose own date (`StudyDate`) is too old or in the future. |
+| **Anonymised files** | Files with empty `PatientID` are grouped by their `StudyInstanceUID` under a stable placeholder ID, so the slices of one anonymised study stay together instead of becoming one patient per file. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
-| **Duplicate prevention** | SHA-256 content hashing, and unique constraints on DICOM UIDs. |
-| **Transactional safety** | Each file is one transaction. A failure at any step rolls back the whole patient → instance chain. |
-| **Structured logging** | Console and critical-file logging, plus per-session, per-file event rows in PostgreSQL (module, function, line, process, thread, exception type, stack trace). |
-| **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no redeploy is needed to tune them. |
+| **Duplicate prevention** | SHA-256 content hashing and unique constraints on DICOM UIDs. |
+| **Transactional safety** | Each file is one transaction. A failure at any step rolls back the whole patient → instance chain. So there's nothing left half-imported. |
+| **Structured logging** | Console and critical-file logging, and per-session, per-file event rows in PostgreSQL (module, function, line, process, thread, exception type, stack trace). |
+| **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no manual set is needed. They can be edited from the web interface. |
+| **REST API** | FastAPI app with a controllers → services → repositories structure, Pydantic validation, and consistent JSON errors (404, 409, 422). |
+| **Web interface** | Dashboard, browser for patients → studies → series, slice viewer, import page with live progress, import history, settings and reset. Written with HTML, CSS and JavaScript served by the API. |
+| **Image viewer** | Rebuilds each slice from the stored pixel bytes with NumPy (rescale to Hounsfield units, then a lung, soft-tissue, bone or automatic window) and returns it as PNG. |
+| **Concurrency safety** | A PostgreSQL advisory lock makes command-line imports, API imports and resets exclude each other, so a reset can never run in the middle of an import. |
 | **Cloud ingestion** | Optionally downloads `.dcm` files from Azure Blob Storage before processing. |
 | **Profiling** | Opt-in `@profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
 | **Containerized** | Docker Compose runs PostgreSQL 15 with a health check, and the pipeline starts only once the database is ready. The pipeline image is a multi-stage build (no compiler in the final image) and runs as a non-root user. |
@@ -66,6 +78,53 @@ flowchart TD
     R -. events .-> L
     G -. events .-> L
 ```
+
+The API reuses the same pipeline. It is split into three layers, so each one has a single job:
+
+```mermaid
+flowchart LR
+    W["web/<br/>HTML, CSS, JavaScript"] -->|"HTTP / JSON"| C["api/controllers<br/>routes and validation"]
+    C --> S["services<br/>rules and errors"]
+    S --> R["repositories<br/>SQL"]
+    R --> DB[("PostgreSQL")]
+    S -->|"background thread"| P["main.py + processor.py<br/>the same import as the CLI"]
+    P --> DB
+```
+
+- **Controllers** declare the routes and let Pydantic check the request.
+- **Services** hold the rules: masking patient names, checking that a parent exists, refusing an import while another one runs.
+- **Repositories** only run SQL and return plain dictionaries.
+
+---
+
+## REST API and web interface
+
+Start the API (the database must be running, for example with `docker compose up -d db`):
+
+```bash
+python -m api
+```
+
+Then open `http://127.0.0.1:8000` for the web interface, or `http://127.0.0.1:8000/docs` for the interactive API documentation that FastAPI generates.
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/api/health` | Checks that the server is up |
+| `GET` | `/api/stats` | Counts of patients, studies, series and instances, and stored bytes |
+| `GET` / `PUT` | `/api/settings` | Reads or replaces the import settings |
+| `GET` | `/api/patients` | Patients, with masked names (`limit`, `offset`) |
+| `GET` | `/api/patients/{id}/studies` | Studies of one patient |
+| `GET` | `/api/studies/{id}/series` | Series of one study |
+| `GET` | `/api/series/{id}/instances` | Slices of one series |
+| `GET` | `/api/instances/{id}/image` | One slice as PNG (`window=auto`, `lung`, `soft_tissue` or `bone`) |
+| `GET` | `/api/folders` | Folders inside `data/` that can be imported |
+| `POST` | `/api/imports` | Starts an import in the background and answers `202` |
+| `GET` | `/api/imports` | Import history with counts per outcome and status |
+| `POST` | `/api/admin/reset` | Drops and recreates the tables; the body must be `{"confirm": "RESET"}` |
+
+Imports can take minutes, so `POST /api/imports` answers straight away with the import's ID, and the web page polls `GET /api/imports` every second to show the progress. Imports started from the command line show up in the history too, and their status (running or finished) comes from the advisory lock.
+
+Errors always have the same shape, `{"detail": "..."}`, for example `409 {"detail": "cannot reset while an import is running"}`, and the web interface shows that message to the user.
 
 ---
 
@@ -133,8 +192,6 @@ erDiagram
     dicom_pixel_data {
         int file_id PK, FK
         varchar(64) transfer_syntax_uid
-        int rows
-        int columns
         int number_of_frames
         smallint bits_allocated
         smallint pixel_representation
@@ -145,7 +202,7 @@ erDiagram
     }
 ```
 
-`UK` marks columns with a `UNIQUE` constraint; `(header_file_id, header_tag)` is unique as a pair. `dicom_pixel_data` also stores samples per pixel, bits stored, photometric interpretation and the byte size (left out of the diagram for space). Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
+`UK` marks columns with a `UNIQUE` constraint; `(header_file_id, header_tag)` is unique as a pair. `dicom_pixel_data` also stores samples per pixel, bits stored, photometric interpretation and the byte size (left out of the diagram for space). The image size (`rows`, `columns`) is kept once, in `dicom_instances`. Supporting tables: `dicom_settings` (key/value runtime settings), `dicom_logger_session` (one row per run, with machine ID) and `dicom_logger` (one row per logged event).
 
 **Example queries**
 
@@ -169,7 +226,7 @@ JOIN dicom_instances i ON i.file_id = h.header_file_id
 WHERE h.header_tag = '00080060';
 
 -- Pixel bytes and the tags needed to rebuild one image
-SELECT i.file_name, p.rows, p.columns, p.bits_allocated, p.rescale_intercept,
+SELECT i.file_name, i.rows, i.columns, p.bits_allocated, p.rescale_intercept,
        p.pixel_data_size_bytes, p.pixel_data
 FROM dicom_pixel_data p
 JOIN dicom_instances i ON i.file_id = p.file_id
@@ -186,7 +243,15 @@ WHERE log_logses_id = (SELECT max(logses_id) FROM dicom_logger_session)
 
 ## Tech stack
 
-Python 3.11 · PostgreSQL 15 · pydicom · psycopg2 · Docker / Docker Compose · Azure Blob Storage · pytest · GitHub Actions · line_profiler
+| Area | Tools |
+|---|---|
+| Pipeline | Python 3.11, pydicom, psycopg2, `ProcessPoolExecutor` |
+| Database | PostgreSQL 15 (`JSONB`, `BYTEA`, upserts, advisory locks) |
+| API | FastAPI, Pydantic, Uvicorn |
+| Images | NumPy, Pillow |
+| Web interface | HTML, CSS, JavaScript (no framework) |
+| Infrastructure | Docker, Docker Compose, Azure Blob Storage |
+| Quality | pytest, GitHub Actions, line_profiler |
 
 ---
 
@@ -194,7 +259,7 @@ Python 3.11 · PostgreSQL 15 · pydicom · psycopg2 · Docker / Docker Compose �
 
 ### Prerequisites
 
-- Docker and Docker Compose (recommended), **or** Python 3.10+ and a PostgreSQL instance
+- Docker and Docker Compose (recommended), **or** Python 3.11+ and a PostgreSQL instance
 - Nothing else: five de-identified sample files are included in [`samples/`](samples/)
 
 ### 1. Clone and configure
@@ -220,7 +285,9 @@ Copy the bundled samples into `./data`, or put your own `.dcm` files there:
 cp samples/*.dcm data/          # Windows PowerShell: Copy-Item samples\*.dcm data\
 ```
 
-The samples are five CT slices from the public LIDC-IDRI collection (CC BY 3.0); see [`samples/README.md`](samples/README.md) for the source and citation.
+The samples are five CT slices from the public LIDC-IDRI collection (CC BY 3.0); see [`samples/README.md`](samples/README.md) and [Data sources](#data-sources) for the citation.
+
+Sub-folders work too (for example `data/chest` and `data/kidney`): the web interface lists them, so you can import one at a time.
 
 ### 3. Run with Docker (recommended)
 
@@ -255,7 +322,7 @@ python main.py [PATH] [--workers N] [--dry-run] [--reset] [--no-azure]
 
 Data is kept between runs by default, so re-running the pipeline on the same folder reports the already-imported files as `duplicate` instead of inserting them again.
 
-The process exits with `0` when no file errored, `1` when at least one file errored, and `2` when the input path does not exist. This makes it easy to use in scripts and CI.
+The process exits with `0` when no file errored, `1` when at least one file errored, `2` when the input path does not exist, and `3` when another import or a reset is already running. This makes it easy to use in scripts and CI.
 
 ### Profiling
 
@@ -295,12 +362,13 @@ Every file ends in exactly one status, summarized at the end of each run:
 ## How a file is processed
 
 1. **Path check:** resolve the real path and confirm it is inside the base folder.
-2. **Filename and extension:** must end in `.dcm` and match the filename whitelist.
-3. **Size:** must be within the configured limits.
-4. **Hash and duplicate check:** compute SHA-256 and look it up in `dicom_instances`.
-5. **Header and scan date:** read the DICOM file once (pixel data included only when `store_pixel_data` is on and it is not a dry run) and reject the file if its `StudyDate` is older than `max_file_age_months` or more than a day in the future. Files with no date at all are accepted with a warning. `--dry-run` stops after this step.
-6. **Extraction (one transaction):** upsert patient → study → series, insert the instance, bulk-insert all header tags, then store the pixel data.
-7. **Commit or roll back:** success commits and logs `SUCCESS`. Any error rolls back the entire file, so no partial hierarchy is left behind.
+2. **Is it DICOM:** a `.dcm` file is accepted straight away; a file without that extension is accepted only if bytes 128–131 of its header are `DICM`. Anything else (such as a citation text file in the same folder) is logged as `skipped`.
+3. **Filename:** must match the filename whitelist.
+4. **Size:** must be within the configured limits.
+5. **Hash and duplicate check:** compute SHA-256 and look it up in `dicom_instances`.
+6. **Header and scan date:** read the DICOM file once (pixel data included only when `store_pixel_data` is on and it is not a dry run) and reject the file if its `StudyDate` is older than `max_file_age_months` or more than a day in the future. Files with no date at all are accepted with a warning. `--dry-run` stops after this step.
+7. **Extraction (one transaction):** upsert patient → study → series, insert the instance, bulk-insert all header tags, then store the pixel data.
+8. **Commit or roll back:** success commits and logs `SUCCESS`. Any error rolls back the entire file, so no partial hierarchy is left behind.
 
 Each step logs to the console and, when a session exists, to `dicom_logger`.
 
@@ -324,7 +392,7 @@ What the numbers show:
 
 - **Parallelism pays off up to 4 workers.** 4 workers import 4.1× faster than a sequential run (58.7 vs 14.3 files per second). A speed-up slightly above the worker count is possible because a sequential import spends much of its time waiting on the database (connecting and committing once per file); with several workers those waits overlap.
 - **1 worker is slower than sequential.** It does the same work plus the cost of starting a worker process and sending each task to it.
-- **8 workers are slower than 4**, even with 12 cores available. The bottleneck moves from Python to the database. All 78 slices belong to the same patient, study and series, so every file's transaction upserts the same three rows, and PostgreSQL keeps a row updated by `INSERT ... ON CONFLICT DO UPDATE` locked until that transaction commits. Concurrent workers therefore queue on those rows, and all of them share one database and its commit log.
+- **8 workers are slower than 4**, even with 12 cores available. The bottleneck moves from Python to the database, and more precisely to row locks. All 78 slices belong to the same patient, study and series, so every file's transaction upserts the same three rows, and PostgreSQL keeps a row updated by `INSERT ... ON CONFLICT DO UPDATE` locked until that transaction commits. Concurrent workers therefore queue on those rows, and all of them share one database and its commit log.
 - **Small batch, some noise.** With 78 files, fixed costs such as starting processes are a noticeable share of the total, and single runs varied by up to about a second, which is why medians are reported.
 
 To reproduce (this resets the pipeline tables before every run):
@@ -350,15 +418,18 @@ All suites live in [`tests/`](tests/):
 
 | Suite | What it covers | Needs a database |
 |---|---|---|
-| `test_main.py` | Command-line options, folder / file / wildcard input, exit codes, `--reset`, settings fallback | No (mocked) |
-| `test_processor.py` | Filename validation, path-traversal and symlink protection, hashing, every validation rejection, scan-date checks, duplicate, dry-run, rollback and error paths | No (mocked) |
+| `test_api.py` | Every endpoint through FastAPI's `TestClient`: status codes, validation errors, 404s, 409s while an import or reset runs, the background import, PNG responses | No (mocked) |
+| `test_services.py` | Name masking, image rebuilding (rescale, windows, compressed images rejected), PNG output | No |
+| `test_repositories.py` | SQL and parameters sent by each repository, rows mapped to dictionaries | No (mocked) |
+| `test_main.py` | Command-line options, folder / file / wildcard input, exit codes (including busy), `--reset`, settings fallback, the lock released after a crash | No (mocked) |
+| `test_processor.py` | Filename validation, path-traversal and symlink protection, `DICM` marker detection, hashing, every validation rejection, scan-date checks, duplicate, dry-run, rollback and error paths | No (mocked) |
 | `test_extractor.py` | Date/time parsing, tag cleaning, nested sequences, binary values, JSON serialization, header bulk-insert payload, patient and study upserts | No (mocked) |
-| `test_database.py` | Connections are always committed or rolled back and closed; session creation; settings loading; DB event logging | No (mocked) |
+| `test_database.py` | Connections are always committed or rolled back and closed; session creation; settings loading; DB event logging; the import lock | No (mocked) |
 | `test_logger.py` | Plain-text labels, Unicode-safe console output, UTF-8 log file | No |
 | `test_profiler.py` | Profiler is off by default and falls back cleanly without `line_profiler` | No |
 | `test_azure.py` | Azure Blob download: skipped without a connection string, failures logged, existing files kept | No (mocked) |
 | `test_benchmark.py` | Benchmark maths (median, files/sec, speed-up), `.dcm` counting, stopping on a failed import | No (mocked) |
-| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import, pixel data stored byte for byte | Yes |
+| `test_integration.py` | Real DICOM files into real PostgreSQL: full hierarchy, JSONB, deduplication, upsert sharing, transaction rollback, DB event logging, scan-date rejection, schema indexes, multi-process import, pixel data stored byte for byte, the advisory lock shared between connections | Yes |
 
 ### Running the integration tests locally
 
@@ -388,6 +459,14 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 ├── data/                      # input .dcm files
 ├── samples/                   # 5 sample .dcm files
 ├── tests/                     # unit and integration tests (pytest)
+├── api/
+│   ├── main.py                # FastAPI app, error handlers, serves web/
+│   ├── __main__.py            # python -m api starts the server
+│   ├── schemas.py             # Pydantic request and response models
+│   └── controllers/           # routes: stats, settings, browse, imports, images, admin
+├── services/                  # rules: masking, import jobs, image rebuilding, errors
+├── repositories/              # SQL only, one module per area
+├── web/                       # index.html, style.css, app.js
 ├── main.py                    # entry point: command-line options, init DB, build options
 ├── processor.py               # validation, hashing, dedupe, scan-date check, parallel orchestration
 ├── extractor.py               # DICOM value conversion and hierarchical upserts
@@ -415,7 +494,11 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push. It starts a Post
 - **No duplicate indexes.** PostgreSQL already builds an index for every `UNIQUE` constraint (patient MRN, study/series UIDs, SHA-256 hash, and `(header_file_id, header_tag)`), so the schema adds explicit indexes only on columns that are not already covered, such as foreign keys, modality, tag and the `JSONB` GIN index. This avoids paying for the same index twice on every insert.
 - **`JSONB` plus a per-tag table.** `JSONB` serves flexible whole-header queries, while `dicom_header` supports indexed relational lookups by tag.
 - **Pixel data in its own table.** At about 512 KB per CT slice, the image bytes are far larger than the metadata, so they live in `dicom_pixel_data` (one row per instance) and metadata queries never read them. They are stored exactly as in the file, so storage is lossless and works for compressed transfer syntaxes too. In production, images would usually go to object storage such as Azure Blob Storage, with only the reference kept in the database.
-- **Settings in the database.** Operators can tune limits and parallelism without rebuilding the image.
+- **Settings in the database.** Operators can tune limits and parallelism without rebuilding the image. The command line and the API convert them with the same function, so they can never read them differently.
+- **One advisory lock for every entry point.** The command line, the API's import and the API's reset all take the same PostgreSQL advisory lock with `pg_try_advisory_lock`, which answers straight away instead of waiting. The lock lives in the database because that is the only thing the separate processes share, and it belongs to its own connection, so PostgreSQL releases it automatically if a process crashes.
+- **Layers in the API.** Controllers, services and repositories each have one job, and the tests replace the repositories, so the rules are tested without a database.
+- **Imports as background jobs.** An import can take minutes, so the API answers `202` with an ID and the web page polls for progress instead of keeping one request open.
+- **Images rebuilt on request.** Slices are turned into PNG from the stored bytes when they are viewed, so the database keeps one lossless copy and any window can be applied.
 - **Logs in the database.** Per-session, per-file event rows make an import auditable and queryable with plain SQL.
 
 ---
@@ -430,6 +513,20 @@ DICOM files can contain protected health information (PHI), so the project treat
 - **Secrets stay out of git.** Credentials live in a git-ignored `.env`; the repository only ships `.env.example` with local development values, and `.dockerignore` keeps `.env` out of the Docker image.
 - **Untrusted file paths are contained.** Every input path is resolved with `realpath` and must stay inside the base folder, so `..` tricks and symlinks cannot reach other files. Filenames are restricted to letters, digits, `_`, `-`, `.` and spaces.
 - **No SQL injection from file contents.** Every value read from a DICOM file or setting is passed with psycopg2 parameter binding; the pipeline never builds SQL with string formatting.
+- **The API is local only.** It listens on `127.0.0.1`, so other machines on the network cannot reach it. It has no login, because it is meant as a local tool.
+- **The API shares as little as possible.** Responses never include medical record numbers, birth dates or file paths, and patient names are masked (`DOE^JOHN` becomes `D** J***`).
+- **Input from the browser is checked twice.** The folder to import must match a strict pattern and must resolve to a folder inside `data/`. The reset needs the word `RESET` typed in. The web page writes values with `textContent`, never `innerHTML`, so data from a file cannot run as HTML.
+
+---
+
+## Data sources
+
+No patient data is stored in this repository except the five sample slices. The datasets used for testing come from The Cancer Imaging Archive (TCIA) and are published under the CC BY 3.0 license:
+
+- **LIDC-IDRI** (chest CT): Armato III, S. G., et al. *Data From LIDC-IDRI* [Data set]. The Cancer Imaging Archive. https://doi.org/10.7937/K9/TCIA.2015.LO9QL9SX
+- **C4KC-KiTS** (abdominal CT): Heller, N., et al. *Data from C4KC-KiTS* [Data set]. The Cancer Imaging Archive. https://doi.org/10.7937/TCIA.2019.IX49E8NX
+
+TCIA: Clark, K., et al. *The Cancer Imaging Archive (TCIA): Maintaining and Operating a Public Information Repository.* Journal of Digital Imaging 26(6), 2013, pp. 1045–1057. https://doi.org/10.1007/s10278-013-9622-7
 
 ---
 
