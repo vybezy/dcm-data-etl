@@ -25,6 +25,7 @@ from db_init import db_init
 from logger import logger
 from database import acquire_import_lock, create_import_session, release_import_lock
 from processor import process_file, scan_and_import
+from repositories import imports_repository
 from utils import ImportOptions
 
 TEST_DB_NAME = os.getenv("TEST_DB_NAME", "")
@@ -324,15 +325,6 @@ def test_pixel_data_is_stored_byte_for_byte(db, tmp_path):
     assert scalar(db, "SELECT count(*) FROM dicom_header WHERE header_tag = '7FE00010'") == 0
 
 
-def test_pixel_data_not_stored_when_setting_is_off(db, tmp_path):
-    path = write_dicom(tmp_path, "image.dcm", pixels=True)
-
-    result = run(path, make_options(tmp_path, store_pixel_data=False))
-
-    assert result["status"] == "inserted"
-    assert scalar(db, "SELECT count(*) FROM dicom_pixel_data") == 0
-
-
 def test_deleting_an_instance_deletes_its_pixels(db, tmp_path):
     path = write_dicom(tmp_path, "image.dcm", pixels=True)
     run(path, make_options(tmp_path))
@@ -356,3 +348,12 @@ def test_import_lock_is_shared_between_connections(db):
     again = acquire_import_lock()
     assert again is not None
     release_import_lock(again)
+
+
+def test_import_lock_held_sees_a_lock_from_another_connection(db):
+    lock = acquire_import_lock()
+    try:
+        assert imports_repository.import_lock_held() is True
+
+    finally:
+        release_import_lock(lock)

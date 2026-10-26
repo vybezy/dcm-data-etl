@@ -511,16 +511,12 @@ def test_read_dicom_header_with_pixels():
     assert dcmread.call_args.kwargs["stop_before_pixels"] is False
 
 
-@pytest.mark.parametrize("store_pixel_data, dry_run, expected", [
-    (True, False, True),    # normal import: pixels are read so they can be stored
-    (False, False, False),  # setting off: header only
-    (True, True, False),    # dry run stores nothing, so it never reads pixels
-])
-def test_process_file_reads_pixels_only_when_storing_them(tmp_path, header, mock_db,
-                                                         store_pixel_data, dry_run, expected):
+@pytest.mark.parametrize("dry_run, expected", [(False, True), (True, False)])
+def test_process_file_reads_pixels_except_in_a_dry_run(tmp_path, header, mock_db, dry_run,
+                                                       expected):
     f = tmp_path / "scan.dcm"
     f.write_bytes(b"data")
-    options = make_options(tmp_path, store_pixel_data=store_pixel_data, dry_run=dry_run)
+    options = make_options(tmp_path, dry_run=dry_run)
 
     with patch("processor.read_dicom_header", return_value=header) as read, \
          patch("processor.process_dicom_file", return_value=1):

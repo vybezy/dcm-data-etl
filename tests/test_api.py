@@ -39,7 +39,6 @@ VALID_SETTINGS = {
     "max_file_size": 103809024,
     "max_file_age_months": 1200,
     "workers": 4,
-    "store_pixel_data": False,
 }
 
 
@@ -53,7 +52,6 @@ def test_get_settings_fills_missing_keys_with_defaults():
         "max_file_size": 103809024,
         "max_file_age_months": 1200,
         "workers": 8,
-        "store_pixel_data": True,
     }
 
 
@@ -68,7 +66,6 @@ def test_put_settings_saves_values_as_text():
         "max_file_size": "103809024",
         "max_file_age_months": "1200",
         "workers": "4",
-        "store_pixel_data": "false",
     })
 
 
@@ -152,14 +149,37 @@ def test_list_imports_adds_status_of_tracked_jobs(monkeypatch):
     monkeypatch.setattr(imports_service, "_jobs", {12: {"status": "running", "total_files": 78}})
     rows = [{"id": 12, "processed": 31}, {"id": 11, "processed": 5}]
 
-    with patch("repositories.imports_repository.list_sessions", return_value=rows):
+    with patch("repositories.imports_repository.list_sessions", return_value=rows), \
+         patch("repositories.imports_repository.import_lock_held", return_value=True):
         response = client.get("/api/imports")
 
     assert response.status_code == 200
     assert response.json() == [
         {"id": 12, "processed": 31, "status": "running", "total_files": 78},
-        {"id": 11, "processed": 5, "status": "unknown", "total_files": None},
+        {"id": 11, "processed": 5, "status": "finished", "total_files": None},
     ]
+
+
+@pytest.mark.parametrize("lock_held, newest_status", [(True, "running"), (False, "finished")])
+def test_list_imports_reads_untracked_status_from_the_import_lock(monkeypatch, lock_held,
+                                                                  newest_status):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+    rows = [{"id": 12, "processed": 31}, {"id": 11, "processed": 5}]
+
+    with patch("repositories.imports_repository.list_sessions", return_value=rows), \
+         patch("repositories.imports_repository.import_lock_held", return_value=lock_held):
+        response = client.get("/api/imports")
+
+    assert [item["status"] for item in response.json()] == [newest_status, "finished"]
+
+
+def test_list_imports_skips_the_lock_query_without_imports(monkeypatch):
+    with patch("repositories.imports_repository.list_sessions", return_value=[]), \
+         patch("repositories.imports_repository.import_lock_held") as lock_held:
+        response = client.get("/api/imports")
+
+    assert response.json() == []
+    lock_held.assert_not_called()
 
 
 def test_list_folders_shows_importable_folders_in_data(tmp_path, monkeypatch):

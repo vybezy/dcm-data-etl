@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from database import IMPORT_LOCK_ID
 from repositories import common, imports_repository, settings_repository, stats_repository
 
 
@@ -24,11 +25,11 @@ def test_save_all_upserts_every_setting():
 
     with patch("repositories.settings_repository.db_connection") as mock_db:
         mock_db.return_value.__enter__.return_value = conn
-        settings_repository.save_all({"workers": "4", "store_pixel_data": "true"})
+        settings_repository.save_all({"workers": "4", "max_file_age_months": "1200"})
 
     sql, rows = cur.executemany.call_args.args
     assert "ON CONFLICT (key) DO UPDATE" in sql
-    assert rows == [("workers", "4"), ("store_pixel_data", "true")]
+    assert rows == [("workers", "4"), ("max_file_age_months", "1200")]
 
 
 def test_fetch_all_maps_rows_by_column_name():
@@ -54,3 +55,12 @@ def test_list_sessions_newest_first_with_limit():
     sql, params = fetch.call_args.args
     assert "ORDER BY s.logses_id DESC LIMIT %s" in sql
     assert params == (5,)
+
+
+def test_import_lock_held_asks_pg_locks_for_the_import_lock():
+    with patch("repositories.common.fetch_all", return_value=[{"?column?": 1}]) as fetch:
+        assert imports_repository.import_lock_held() is True
+
+    sql, params = fetch.call_args.args
+    assert "pg_locks" in sql
+    assert params == (IMPORT_LOCK_ID,)
