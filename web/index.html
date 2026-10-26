@@ -160,7 +160,7 @@
         <p class="muted panel-intro">Changes apply to the next import.</p>
 
         <div class="field">
-          <label for="set-min-size">Minimum file size (KB)</label>
+          <label for="set-min-size">Minimum file size (MB)</label>
           <input type="number" id="set-min-size" min="0" step="any">
           <p class="hint">Smaller files are rejected as invalid.</p>
         </div>
@@ -179,14 +179,6 @@
           <input type="number" id="set-workers" min="0" max="32" step="1">
           <p class="hint">Worker processes for an import. 0 = one file at a time. Maximum 32.</p>
         </div>
-
-        <label class="switch-row">
-          <span>
-            Store pixel data
-            <span class="hint">Needed to show images. Turn off for a faster, metadata-only import.</span>
-          </span>
-          <input type="checkbox" class="switch" id="set-store-pixels">
-        </label>
 
         <button type="submit" class="primary">
           <span class="material-symbols-rounded">save</span>
@@ -221,6 +213,26 @@
         <p class="success" id="reset-done"></p>
         <p class="error" id="reset-error"></p>
       </form>
+
+      <dialog class="dialog" id="reset-dialog">
+        <form method="dialog">
+          <p class="danger-title">
+            <span class="material-symbols-rounded">warning</span>
+            Are you sure?
+          </p>
+          <p class="dialog-text">
+            Every patient, study, series and image will be deleted, the settings go back to
+            their defaults and the import history is emptied. This can't be undone.
+          </p>
+          <div class="dialog-buttons">
+            <button type="submit" value="cancel" class="secondary">Cancel</button>
+            <button type="submit" value="confirm" class="primary danger">
+              <span class="material-symbols-rounded">delete_forever</span>
+              Yes, reset everything
+            </button>
+          </div>
+        </form>
+      </dialog>
     </section>
   </main>
 

@@ -486,15 +486,18 @@ async function loadHistory() {
 const settingsSaved = document.getElementById("settings-saved");
 const settingsError = document.getElementById("settings-error");
 
-// the api works in bytes; the page shows KB and MB because they're easier to read
-const KB = 1024;
+// the api works in bytes; the page shows MB because they're easier to read
 const MB = 1024 * 1024;
+let loadedSettings = null;
 
 function toUnit(bytes, unit) {
   return Number((bytes / unit).toFixed(2));   // 103809024 bytes -> 99 (MB)
 }
 
-function fromUnit(input, unit) {
+function fromUnit(input, unit, savedBytes) {
+  if (input.valueAsNumber === toUnit(savedBytes, unit)) {
+    return savedBytes;
+  }
   // valueAsNumber is NaN for an empty box; JSON turns NaN into null, so the api answers 422
   return Math.round(input.valueAsNumber * unit);
 }
@@ -510,11 +513,11 @@ async function loadSettings() {
 }
 
 function showSettings(settings) {
-  document.getElementById("set-min-size").value = toUnit(settings.min_file_size, KB);
+  loadedSettings = settings;
+  document.getElementById("set-min-size").value = toUnit(settings.min_file_size, MB);
   document.getElementById("set-max-size").value = toUnit(settings.max_file_size, MB);
   document.getElementById("set-max-age").value = settings.max_file_age_months;
   document.getElementById("set-workers").value = settings.workers;
-  document.getElementById("set-store-pixels").checked = settings.store_pixel_data;
 }
 
 document.getElementById("settings-form").addEventListener("submit", async (event) => {
@@ -524,11 +527,12 @@ document.getElementById("settings-form").addEventListener("submit", async (event
 
   // PUT replaces all settings, so every field is sent
   const settings = {
-    min_file_size: fromUnit(document.getElementById("set-min-size"), KB),
-    max_file_size: fromUnit(document.getElementById("set-max-size"), MB),
+    min_file_size: fromUnit(document.getElementById("set-min-size"), MB,
+                            loadedSettings.min_file_size),
+    max_file_size: fromUnit(document.getElementById("set-max-size"), MB,
+                            loadedSettings.max_file_size),
     max_file_age_months: document.getElementById("set-max-age").valueAsNumber,
     workers: document.getElementById("set-workers").valueAsNumber,
-    store_pixel_data: document.getElementById("set-store-pixels").checked,
   };
 
   try {
@@ -545,6 +549,7 @@ const resetConfirm = document.getElementById("reset-confirm");
 const resetButton = document.getElementById("reset-button");
 const resetDone = document.getElementById("reset-done");
 const resetError = document.getElementById("reset-error");
+const resetDialog = document.getElementById("reset-dialog");
 
 // every visit starts locked: the box is emptied and the button disabled
 function openResetPage() {
@@ -559,8 +564,19 @@ resetConfirm.addEventListener("input", () => {
   resetButton.disabled = resetConfirm.value !== "RESET";
 });
 
-document.getElementById("reset-form").addEventListener("submit", async (event) => {
+document.getElementById("reset-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  resetDialog.returnValue = "";
+  resetDialog.showModal();
+});
+
+resetDialog.addEventListener("close", () => {
+  if (resetDialog.returnValue === "confirm") {
+    runReset();
+  }
+});
+
+async function runReset() {
   resetDone.textContent = "";
   resetError.textContent = "";
   resetButton.disabled = true;   // no double clicks while it runs
@@ -573,7 +589,7 @@ document.getElementById("reset-form").addEventListener("submit", async (event) =
     resetError.textContent = err.message;   // e.g. 409 "cannot reset while an import is running"
     resetButton.disabled = resetConfirm.value !== "RESET";
   }
-});
+}
 
 // ------------------------- start site -------------------------
 
