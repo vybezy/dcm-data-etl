@@ -1,5 +1,6 @@
 """sql for import history: one row per import session with counts per outcome."""
 
+from database import IMPORT_LOCK_ID
 from repositories import common
 
 # every file writes exactly one dicom_logger row, so counting rows = files processed
@@ -21,3 +22,15 @@ def list_sessions(limit: int) -> list[dict]:
     return common.fetch_all(
         _SUMMARY + " GROUP BY s.logses_id ORDER BY s.logses_id DESC LIMIT %s", (limit,)
     )
+
+
+_LOCK_HELD = """
+    SELECT 1 FROM pg_locks
+    WHERE locktype = 'advisory' AND granted
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND classid = 0 AND objid = %s AND objsubid = 1
+"""
+
+
+def import_lock_held() -> bool:
+    return common.fetch_all(_LOCK_HELD, (IMPORT_LOCK_ID,)) != []
