@@ -239,10 +239,8 @@ def process_file(path: str, options_dict: dict):
             return finish(result, conn, options, path, "duplicate", "DUPLICATE",
                           f"Duplicate file (SHA256={sha})", db_file_id=row[0])
 
-        with_pixels = options.store_pixel_data and not options.dry_run
-
         try:
-            dataset = read_dicom_header(abs_path, with_pixels=with_pixels)
+            dataset = read_dicom_header(abs_path, with_pixels=not options.dry_run) # checks if im running a dry-run or not. If yes then pixels arent read.
 
         except Exception as e:
             return finish(result, conn, options, path, "error", "ERROR",

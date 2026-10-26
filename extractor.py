@@ -478,8 +478,6 @@ def process_dicom_file(
     )
 
     extract_and_insert_headers(conn, dataset, file_id)
-
-    # only stores pixels when store_pixel_data setting -> True
     extract_and_insert_pixel_data(conn, dataset, file_id)
 
     return file_id

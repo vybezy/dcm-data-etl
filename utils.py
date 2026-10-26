@@ -90,7 +90,6 @@ class ImportOptions:
     workers: int
     dry_run: bool = False
     session_id: Optional[int] = None
-    store_pixel_data: bool = True
 
 
 class ImportErrorWithContext(Exception):

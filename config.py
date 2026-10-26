@@ -10,12 +10,7 @@ DEFAULT_SETTINGS = {
     "max_file_size": str(99 * 1024 * 1024),     # 99 MB
     "max_file_age_months": "1200",              # 100 years
     "workers": "4",                             # 0 = sequential
-    "store_pixel_data": "true",                 # pixels -> dicom_pixel_data
 }
-
-
-INT_SETTINGS = ("min_file_size", "max_file_size", "max_file_age_months", "workers")
-BOOL_SETTINGS = ("store_pixel_data",)
 
 
 def is_true(value) -> bool:
@@ -25,9 +20,7 @@ def is_true(value) -> bool:
 
 def typed_settings(stored: dict) -> dict:
     raw = {**DEFAULT_SETTINGS, **stored}
-    typed = {key: int(raw[key]) for key in INT_SETTINGS}
-    typed.update({key: is_true(raw[key]) for key in BOOL_SETTINGS})
-    return typed
+    return {key: int(raw[key]) for key in DEFAULT_SETTINGS}
 
 
 def env_flag(name: str) -> bool:
