@@ -114,7 +114,6 @@ def build_options(base_folder: str, workers: int = None, dry_run: bool = False) 
         workers=workers,
         dry_run=dry_run,
         session_id=session_id,
-        store_pixel_data=settings["store_pixel_data"],
     )
 
 

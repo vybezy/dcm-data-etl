@@ -14,7 +14,6 @@ class Settings(BaseModel):
     max_file_size: int = Field(gt=0)
     max_file_age_months: int = Field(ge=1)
     workers: int = Field(ge=0, le=32)
-    store_pixel_data: bool
 
 
 class ImportRequest(BaseModel):
