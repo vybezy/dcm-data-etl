@@ -16,9 +16,6 @@ from services.errors import ConflictError, NotFoundError
 _jobs = {}
 job_lock = Lock()
 
-# for imports run from the cli or before the api was restarted
-_UNTRACKED = {"status": "unknown", "total_files": None}
-
 # "" or a sub-folder of data/ like "batch/day": no dots and no leading "/", so no ".."
 # (api/schemas.py checks requests with this same pattern)
 FOLDER_PATTERN = r"^([\w\- ]+(/[\w\- ]+)*)?$"
@@ -57,9 +54,17 @@ def list_folders() -> list[str]:
     return sorted(folders)
 
 
+def _untracked(running: bool) -> dict:
+    return {"status": "running" if running else "finished", "total_files": None}
+
+
 def list_imports(limit: int) -> list[dict]:
     sessions = imports_repository.list_sessions(limit)
-    return [{**session, **_jobs.get(session["id"], _UNTRACKED)} for session in sessions]
+    newest_is_running = bool(sessions) and imports_repository.import_lock_held()
+    return [
+        {**session, **_jobs.get(session["id"], _untracked(newest_is_running and index == 0))}
+        for index, session in enumerate(sessions)
+    ]
 
 
 def start_import(folder: str, dry_run: bool) -> dict:
