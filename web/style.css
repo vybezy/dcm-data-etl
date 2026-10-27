@@ -326,28 +326,6 @@ tbody tr.clickable:hover {
   cursor: pointer;
 }
 
-.window-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0 12px;
-}
-
-.window-buttons button {
-  padding: 6px 12px;
-  border: 1px solid #d0d7e2;
-  border-radius: 8px;
-  background: white;
-  font: inherit;
-  cursor: pointer;
-}
-
-.window-buttons button.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
-}
-
 /* ---------- import: form and progress ---------- */
 
 .panel {

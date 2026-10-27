@@ -157,7 +157,6 @@ const browse = {
   series: null,
   slices: [],
   index: 0,
-  window: "auto",
 };
 
 const browseList = document.getElementById("browse-list");
@@ -253,13 +252,9 @@ async function openViewer(series) {
 function showSlice() {
   const slice = browse.slices[browse.index];
   imageError.textContent = "";
-  sliceImage.src = `/api/instances/${slice.file_id}/image?window=${browse.window}`;
+  sliceImage.src = `/api/instances/${slice.file_id}/image`;
   sliceInfo.textContent = `Slice ${browse.index + 1} / ${browse.slices.length}`;
   sliceSlider.value = browse.index;
-
-  document.querySelectorAll(".window-buttons button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.window === browse.window);
-  });
 }
 
 function moveSlice(step) {
@@ -304,13 +299,6 @@ document.getElementById("slice-next").addEventListener("click", () => moveSlice(
 sliceSlider.addEventListener("input", () => {
   browse.index = Number(sliceSlider.value);
   showSlice();
-});
-
-document.querySelectorAll(".window-buttons button").forEach((button) => {
-  button.addEventListener("click", () => {
-    browse.window = button.dataset.window;
-    showSlice();
-  });
 });
 
 // left / right arrow keys scroll through the slices while the viewer is open
@@ -359,6 +347,7 @@ importForm.addEventListener("submit", async (event) => {
 function startPolling(importId) {
   stopPolling();
   importStart.disabled = true;
+  azureSync.disabled = true;
   importProgress.hidden = false;
   checkProgress(importId);
   pollTimer = setInterval(() => checkProgress(importId), 1000);
@@ -368,6 +357,7 @@ function stopPolling() {
   clearInterval(pollTimer);
   pollTimer = null;
   importStart.disabled = false;
+  azureSync.disabled = false;
 }
 
 async function checkProgress(importId) {
@@ -410,6 +400,7 @@ function showProgress(job) {
 function openImportPage() {
   loadFolders();
   resumeImport();
+  showAzureSync();
 }
 
 // fills the dropdown with the folders inside data/ (keeps the current choice if it still exists)
@@ -431,6 +422,38 @@ async function loadFolders() {
 }
 
 document.getElementById("refresh-folders").addEventListener("click", loadFolders);
+
+const azureSync = document.getElementById("azure-sync");
+const azureResult = document.getElementById("azure-result");
+
+async function showAzureSync() {
+  try {
+    const status = await getJson("/api/azure");
+    azureSync.hidden = !status.configured;
+  } catch (err) {
+    azureSync.hidden = true;
+  }
+}
+
+azureSync.addEventListener("click", async () => {
+  importError.textContent = "";
+  azureResult.textContent = "Downloading from Azure Blob Storage…";
+  azureSync.disabled = true;
+  importStart.disabled = true;
+
+  try {
+    const result = await sendJson("POST", "/api/azure/sync", {});
+    azureResult.textContent = `Downloaded ${result.downloaded} new file(s) into data/${result.folder}.`;
+    await loadFolders();
+    document.getElementById("import-folder").value = result.folder;
+  } catch (err) {
+    azureResult.textContent = "";
+    importError.textContent = err.message;
+  } finally {
+    azureSync.disabled = pollTimer !== null;
+    importStart.disabled = pollTimer !== null;
+  }
+});
 
 // opening the page while an import runs (e.g. after a refresh) shows its progress again
 async function resumeImport() {
