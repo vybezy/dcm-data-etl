@@ -11,9 +11,9 @@ from datetime import datetime
 from functools import wraps
 from typing import Optional
 
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import ContainerClient
 
-from config import env_flag
+from config import env_flag, env_value
 from logger import logger, pretty_log
 
 
@@ -153,33 +153,17 @@ def handle_exception(
 
 def download_dicom_from_azure(download_dir: str = "/data") -> str:
     """
-    connects to Azure Blob Storage using a SAS connection string and downloads
+    connects to an Azure Blob Storage container using its URL and downloads
     all .dcm files into the local container directory prior to processing.
     """
-    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    if not connection_string:
-        logger.info("No AZURE_STORAGE_CONNECTION_STRING found; using existing local files.")
+    container_url = azure_container_url()
+    if not container_url:
+        logger.info("No AZURE_CONTAINER_URL found; using existing local files.")
         return download_dir
 
     logger.info("Connecting to Azure Blob Storage...")
     try:
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        container_client = blob_service_client.get_container_client("raw-dicom-files")
-
-        os.makedirs(download_dir, exist_ok=True)
-        downloaded = 0
-
-        for blob in container_client.list_blobs():
-            dest_path = os.path.join(download_dir, os.path.basename(blob.name))
-            if not os.path.exists(dest_path):
-                logger.info("Downloading %s from Azure Blob Storage...", blob.name)
-
-                with open(dest_path, "wb") as f:
-                    f.write(container_client.download_blob(blob.name).readall())
-
-                downloaded += 1
-
-        logger.info("Azure download complete: %d new file(s) retrieved.", downloaded)
+        download_new_blobs(container_url, download_dir)
 
     except Exception as e:
         logger.warning(
@@ -188,3 +172,27 @@ def download_dicom_from_azure(download_dir: str = "/data") -> str:
         )
 
     return download_dir
+
+
+def azure_container_url() -> str:
+    return env_value("AZURE_CONTAINER_URL")
+
+
+def download_new_blobs(container_url: str, download_dir: str) -> int:
+    container_client = ContainerClient.from_container_url(container_url)
+
+    os.makedirs(download_dir, exist_ok=True)
+    downloaded = 0
+
+    for blob in container_client.list_blobs():
+        dest_path = os.path.join(download_dir, os.path.basename(blob.name))
+        if not os.path.exists(dest_path):
+            logger.info("Downloading %s from Azure Blob Storage...", blob.name)
+
+            with open(dest_path, "wb") as f:
+                f.write(container_client.download_blob(blob.name).readall())
+
+            downloaded += 1
+
+    logger.info("Azure download complete: %d new file(s) retrieved.", downloaded)
+    return downloaded

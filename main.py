@@ -135,7 +135,9 @@ def main(argv=None) -> int:
 
     lock = acquire_import_lock()
     if lock is None:
-        logger.error("Another import or a reset is running; try again when it has finished")
+        logger.error(
+            "Another import, a reset or an Azure sync is running; try again when it has finished"
+        )
         return 3
 
     try:

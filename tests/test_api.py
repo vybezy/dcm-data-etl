@@ -131,8 +131,9 @@ def lock(request):
     acquired = getattr(request, "param", "lock")
     with patch("services.imports_service.acquire_import_lock", return_value=acquired), \
          patch("services.imports_service.release_import_lock") as imports_release, \
-         patch("services.admin_service.release_import_lock") as admin_release:
-        yield imports_release, admin_release
+         patch("services.admin_service.release_import_lock") as admin_release, \
+         patch("services.azure_service.release_import_lock") as azure_release:
+        yield imports_release, admin_release, azure_release
 
 
 class RunNow:
@@ -223,7 +224,7 @@ def test_start_import_returns_409_when_the_cli_is_importing(monkeypatch, lock):
     response = client.post("/api/imports", json={})
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "an import or a reset is already running"}
+    assert response.json() == {"detail": "an import, a reset or an Azure sync is already running"}
 
 
 def test_start_import_returns_409_when_one_is_running(monkeypatch):
@@ -262,7 +263,9 @@ def test_reset_returns_409_when_the_cli_is_importing(monkeypatch, lock):
         response = client.post("/api/admin/reset", json={"confirm": "RESET"})
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "cannot reset while an import is running"}
+    assert response.json() == {
+        "detail": "cannot reset while an import or an Azure sync is running"
+    }
     reset.assert_not_called()
 
 
@@ -303,3 +306,64 @@ def test_root_serves_the_gui():
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "DICOM ETL" in response.text
+
+
+# azure
+URL = "https://demo.blob.core.windows.net/raw-dicom-files"
+
+
+@pytest.mark.parametrize("url, configured", [(URL, True), ("", False)])
+def test_azure_status_says_if_a_container_url_is_set(url, configured):
+    with patch("utils.azure_container_url", return_value=url):
+        response = client.get("/api/azure")
+
+    assert response.status_code == 200
+    assert response.json() == {"configured": configured}
+
+
+def test_azure_sync_returns_503_when_not_configured():
+    with patch("utils.azure_container_url", return_value=""), \
+         patch("utils.download_new_blobs") as download:
+        response = client.post("/api/azure/sync")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Azure Blob Storage is not configured"}
+    download.assert_not_called()
+
+
+def test_azure_sync_downloads_into_data_azure(tmp_path, monkeypatch, lock):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+    monkeypatch.setattr("main.default_data_dir", lambda: str(tmp_path))
+
+    with patch("utils.azure_container_url", return_value=URL), \
+         patch("utils.download_new_blobs", return_value=3) as download:
+        response = client.post("/api/azure/sync")
+
+    assert response.status_code == 200
+    assert response.json() == {"folder": "azure", "downloaded": 3}
+    download.assert_called_once_with(URL, str(tmp_path.resolve() / "azure"))
+    lock[2].assert_called_once_with("lock")
+
+
+@pytest.mark.parametrize("lock", [None], indirect=True)
+def test_azure_sync_returns_409_while_importing(monkeypatch, lock):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    with patch("utils.azure_container_url", return_value=URL), \
+         patch("utils.download_new_blobs") as download:
+        response = client.post("/api/azure/sync")
+
+    assert response.status_code == 409
+    download.assert_not_called()
+
+
+def test_azure_sync_hides_the_error_details_and_releases_the_lock(monkeypatch, lock):
+    monkeypatch.setattr(imports_service, "_jobs", {})
+
+    with patch("utils.azure_container_url", return_value=URL), \
+         patch("utils.download_new_blobs", side_effect=ValueError("internal detail")):
+        response = client.post("/api/azure/sync")
+
+    assert response.status_code == 503
+    assert "internal detail" not in response.text
+    lock[2].assert_called_once_with("lock")
