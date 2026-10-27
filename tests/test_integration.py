@@ -20,6 +20,7 @@ import psycopg2
 from pydicom.dataset import FileDataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, CTImageStorage, generate_uid
 
+from auth_db import auth_init
 from config import config
 from db_init import db_init
 from logger import logger
@@ -357,3 +358,65 @@ def test_import_lock_held_sees_a_lock_from_another_connection(db):
 
     finally:
         release_import_lock(lock)
+
+
+def add_user(conn, username, rights):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO app_users (username, password_hash, rights) VALUES (%s, 'x', %s) "
+            "RETURNING user_id",
+            (username, rights),
+        )
+        return cur.fetchone()[0]
+
+
+@pytest.fixture
+def auth(db):
+    auth_init(logger=logger)
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM app_users")
+    db.commit()
+    yield db
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM app_users")
+    db.commit()
+
+
+def test_auth_init_can_run_twice(auth):
+    auth_init(logger=logger)
+    assert scalar(auth, "SELECT count(*) FROM app_users") == 0
+
+
+def test_users_survive_a_reset(auth):
+    add_user(auth, "admin", 3)
+    auth.commit()
+
+    db_init(reset_tables=True, logger=logger)
+
+    assert scalar(auth, "SELECT count(*) FROM app_users WHERE username = 'admin'") == 1
+
+
+@pytest.mark.parametrize("rights", [0, 4])
+def test_rights_outside_1_to_3_are_refused(auth, rights):
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        add_user(auth, "someone", rights)
+
+
+def test_usernames_are_unique(auth):
+    add_user(auth, "maria", 1)
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        add_user(auth, "maria", 2)
+
+
+def test_deleting_a_user_deletes_their_sessions(auth):
+    user_id = add_user(auth, "viewer", 1)
+    with auth.cursor() as cur:
+        cur.execute(
+            "INSERT INTO app_sessions (token_hash, user_id, expires_at) "
+            "VALUES (%s, %s, now() + interval '8 hours')",
+            ("a" * 64, user_id),
+        )
+        cur.execute("DELETE FROM app_users WHERE user_id = %s", (user_id,))
+
+    assert scalar(auth, "SELECT count(*) FROM app_sessions") == 0
