@@ -23,6 +23,11 @@ def typed_settings(stored: dict) -> dict:
     return {key: int(raw[key]) for key in DEFAULT_SETTINGS}
 
 
+def env_value(name: str) -> str:
+    load_dotenv()
+    return os.getenv(name, "").strip()
+
+
 def env_flag(name: str) -> bool:
     """true when an environment variable is set to 1, true or yes."""
     load_dotenv()
