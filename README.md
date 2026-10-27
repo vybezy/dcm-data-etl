@@ -41,8 +41,8 @@ The front-end code (html, JS, css) was written with the help of an AI assistant 
 | **Parallel processing** | Files are processed concurrently with `ProcessPoolExecutor`. The worker count is configurable, with sequential fallback. 4 workers import about 4× faster than sequential ([benchmark](#performance)). |
 | **Relational modelling** | Patient → Study → Series → Instance hierarchy, loaded with idempotent `INSERT ... ON CONFLICT` upserts. |
 | **Complete header capture** | Every DICOM tag (except pixel data) is stored as `JSONB` for flexible queries, and as one row per tag for relational queries. Nested sequences are kept in full, binary values are summarised, and both use the DICOM JSON tag format (`00080060`). Bulk inserts use `execute_values`. |
-| **Pixel data storage** | The image bytes of every file are stored unchanged in their own table, with a SHA-256 checksum and the tags needed to rebuild the image (dimensions, bit depth, rescale slope/intercept for Hounsfield units). Can be turned off through settings. |
-| **Input validation** | Recognises DICOM files by their `.dcm` extension or for files without one, by the `DICM` marker in the file header (To make sure DICOM files without an extension aren't skipped); anything else is skipped. Then checks the filename whitelist and size limits, and rejects scans whose own date (`StudyDate`) is too old or in the future. |
+| **Pixel data storage** | The image bytes of every file are stored in their own table, with a SHA-256 checksum and the tags needed to rebuild the image (dimensions, bit depth, rescale slope/intercept for Hounsfield units). |
+| **Input validation** | Recognises DICOM files by their `.dcm` extension or for files without one, by the `DICM` marker in the file header (To make sure DICOM files without an extension aren't skipped), anything else is skipped. Then checks the filename whitelist and size limits, and rejects scans whose own date (`StudyDate`) is too old or in the future. |
 | **Anonymised files** | Files with empty `PatientID` are grouped by their `StudyInstanceUID` under a stable placeholder ID, so the slices of one anonymised study stay together instead of becoming one patient per file. |
 | **Path-traversal protection** | Paths are resolved with `realpath` and `commonpath`, so `..` and symlink escapes outside the base folder are rejected. |
 | **Duplicate prevention** | SHA-256 content hashing and unique constraints on DICOM UIDs. |
@@ -51,7 +51,7 @@ The front-end code (html, JS, css) was written with the help of an AI assistant 
 | **Runtime configuration** | Import limits and worker count are read from the `dicom_settings` table, so no manual set is needed. They can be edited from the web interface. |
 | **REST API** | FastAPI app with a controllers → services → repositories structure, Pydantic validation, and consistent JSON errors (404, 409, 422). |
 | **Web interface** | Dashboard, browser for patients → studies → series, slice viewer, import page with live progress, import history, settings and reset. Written with HTML, CSS and JavaScript served by the API. |
-| **Image viewer** | Rebuilds each slice from the stored pixel bytes with NumPy (rescale to Hounsfield units, then a lung, soft-tissue, bone or automatic window) and returns it as PNG. |
+| **Image viewer** | Rebuilds each slice from the stored pixel bytes with NumPy (rescaled to Hounsfield units) and returns it as PNG with an automatic grey-level window. |
 | **Concurrency safety** | A PostgreSQL advisory lock makes command-line imports, API imports and resets exclude each other, so a reset can never run in the middle of an import. |
 | **Cloud ingestion** | Optionally downloads `.dcm` files from Azure Blob Storage before processing. |
 | **Profiling** | Opt-in `@profiler` decorator (via `line_profiler`). Off by default with zero overhead; set `DICOM_PROFILE=1` to write line-by-line timings to one `profiler_logs_<pid>.txt` per process. |
