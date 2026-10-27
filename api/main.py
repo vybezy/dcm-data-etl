@@ -4,9 +4,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.controllers import admin, browse, health, images, imports, settings, stats
+from api.controllers import admin, azure, browse, health, images, imports, settings, stats
 from services.errors import (ConflictError, InvalidSettingsError, NotFoundError,
-                             UnsupportedImageError)
+                             UnavailableError, UnsupportedImageError)
 
 app = FastAPI(
     title="DICOM ETL API",
@@ -20,6 +20,7 @@ ERROR_STATUS = {
     InvalidSettingsError: 422,
     ConflictError: 409,
     UnsupportedImageError: 422,
+    UnavailableError: 503,
 }
 
 
@@ -30,7 +31,7 @@ def handle_service_error(request: Request, exc: Exception) -> JSONResponse:
 for error in ERROR_STATUS:
     app.add_exception_handler(error, handle_service_error)
 
-for controller in (health, stats, settings, browse, imports, admin, images):
+for controller in (health, stats, settings, browse, imports, azure, admin, images):
     app.include_router(controller.router, prefix="/api")
 
 app.mount("/", StaticFiles(directory="web", html=True), name="web")

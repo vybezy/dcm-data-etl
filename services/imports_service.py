@@ -72,7 +72,7 @@ def start_import(folder: str, dry_run: bool) -> dict:
 
     # check + mark as running in one step, so two requests can't both start
     with job_lock:
-        lock = take_import_lock("an import or a reset is already running")
+        lock = take_import_lock("an import, a reset or an Azure sync is already running")
         try:
             db_init(reset_tables=False, logger=logger)
             options = cli.build_options(base_folder, dry_run=dry_run)
