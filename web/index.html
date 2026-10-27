@@ -104,13 +104,6 @@
             </button>
           </div>
 
-          <p class="muted">Window</p>
-          <div class="window-buttons">
-            <button data-window="auto">Auto</button>
-            <button data-window="lung">Lung</button>
-            <button data-window="soft_tissue">Soft tissue</button>
-            <button data-window="bone">Bone</button>
-          </div>
           <p class="error" id="image-error"></p>
         </div>
       </div>
@@ -127,7 +120,12 @@
                   title="Reload the folder list">
             <span class="material-symbols-rounded">refresh</span>
           </button>
+          <button type="button" class="icon-button" id="azure-sync" hidden
+                  title="Download new files from Azure Blob Storage into data/azure">
+            <span class="material-symbols-rounded">cloud_download</span>
+          </button>
         </div>
+        <p class="success" id="azure-result"></p>
         <label class="checkbox">
           <input type="checkbox" id="import-dry-run">
           Dry run (check everything, insert nothing)
