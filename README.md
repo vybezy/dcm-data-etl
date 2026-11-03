@@ -26,8 +26,11 @@ The front-end code (HTML, CSS, JavaScript) was written with the help of an AI as
     <td align="center"><img src="docs/history.png" alt="Import history" width="300"><br>Import history</td>
     <td align="center"><img src="docs/reset.png" alt="Reset confirmation dialog" width="300"><br>Reset confirmation</td>
   </tr>
+  <tr>
+    <td align="center"><img src="docs/settings.png" alt="Import settings" width="300"><br>Settings</td>
+  </tr>
 </table>
----
+
 
 ## Table of contents
 
